@@ -27,21 +27,29 @@ A full run lasts about 30 minutes in the intended production version. The curren
 1. Read the district state.
 2. Select an NPC on the isometric map.
 3. Talk, recruit, trade, or investigate.
-4. Watch memory and gossip change social state.
-5. Craft support assets.
-6. Resolve tactical crises.
-7. Advance the day.
-8. Reach one of three endings and a final score.
+4. Watch the characters physically perform the action and react.
+5. See memory, gossip, groups, and district relations change.
+6. Craft support assets that remain visible in the world.
+7. Resolve tactical crises against visible rival crews.
+8. Advance the day and reach one of three endings and a final score.
 
 ## NPCs
 
-- Marta: bar owner and rumor hub.
-- Nando: former boxer and tired protector.
-- Leila: student activist and digital organizer.
-- Ruggero: doorman and living archive.
-- Ilaria: nurse and triage anchor.
+- Teo: observant teen and memory of the group.
+- Edo: athletic teen and impulsive defender.
+- Jack: outsider teen, radio operator, and network builder.
+- Marta: teen organizer of assemblies and the She-Wolf wall.
+- Miranda: quiet teen, caregiver, and keeper of difficult secrets.
 
 Each NPC has role, routine, secret, evolution path, trust, fear, courage, morality, relations, and memory.
+
+Each also has a persistent physical state: location, route, destination, direction, current activity, objective, group, action, and emotional posture. They can travel independently, meet, separate, patrol, investigate, exchange news, or gather as a group.
+
+## Dynamic World
+
+Every Testaccio location has an authored navigation graph and action anchors. Character movement is motivated by routines, relationships, fear, courage, crises, and player commands. Autonomous behavior keeps the district alive between commands without turning it into visual noise.
+
+Actions use three readable beats: intent and travel, physical performance, then consequence. Resources and faction relations change only after the impact beat. Rival districts appear as small crews whose stance reflects relation and pressure.
 
 ## Systems
 
@@ -67,7 +75,7 @@ Metrics:
 
 ## Tactical Crises
 
-Crises happen every other day and present laptop-friendly turn-based choices. Outcomes affect resources, metrics, NPC memory, and gossip.
+Crises happen every other day and present laptop-friendly turn-based choices alongside the live scene. Rival crews arrive at the border; the chosen response is staged physically before outcomes affect resources, metrics, NPC memory, gossip, and faction relations.
 
 ## Crafting
 
@@ -89,7 +97,7 @@ The setting evokes a modern Roman district inspired by Testaccio: courtyards, ma
 
 ## UI
 
-The first screen is immersive. The game uses a fixed top bar, resource strip, isometric map, NPC bottom sheet, and an optional dossier dashboard.
+The first screen is immersive. The game uses a fixed top bar, full-width narrator, resource strip, live isometric world, compact NPC status dock, hover inspector, and an optional dossier dashboard. Commands live in a color-coded radial wheel around the selected resident; the wheel follows movement and disappears while a directed sequence is playing. Hovering or focusing one command reveals a single nearby preview of resource and faction consequences. After impact, affected districts pulse briefly according to whether relations improved or pressure rose. All ten locations are reached from one compact area menu with previous/next controls.
 
 ## Scoring
 

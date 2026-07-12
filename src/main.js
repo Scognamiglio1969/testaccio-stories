@@ -1,14 +1,19 @@
 import { badges, scenes, strings } from "./gameData.js";
+import { activityLabels, characterAssets } from "./worldData.js";
+import { WorldRuntime } from "./worldRuntime.js";
 import {
   advanceDay,
+  canCraft,
   changeScene,
   craft,
   createGame,
   finishGame,
   getActiveFaction,
   getFactionActionEffects,
+  getActionForecast,
   getLeaderboard,
   getScene,
+  getSceneObjective,
   loadGame,
   makeDialogue,
   npcAction,
@@ -21,6 +26,13 @@ import {
 const app = document.querySelector("#app");
 let state = loadGame() || createGame();
 let audioEnabled = localStorage.getItem("ts-audio") === "on";
+let worldRuntime = null;
+let interactionBusy = false;
+let beatTimer = null;
+let sceneBeat = null;
+let highlightedFactionSequence = null;
+let factionHighlightTimer = null;
+let pendingHighRiskAction = null;
 
 const sound = {
   context: null,
@@ -126,7 +138,13 @@ function label(value) {
   return typeof value === "object" ? value[state.language] : value;
 }
 
+function activityLabel(value) {
+  return activityLabels[value]?.[state.language] || value || (state.language === "it" ? "nel rione" : "in the district");
+}
+
 function setState(next) {
+  worldRuntime?.destroy();
+  worldRuntime = null;
   state = next;
   render();
 }
@@ -186,6 +204,8 @@ function narratorCopy() {
   const scene = getScene(state);
   const faction = getActiveFaction(state);
   const npc = state.npcs.find((item) => item.id === state.activeNpc);
+  const objective = safeSceneObjective();
+  const turn = turnState();
   const weak = Object.entries(state.resources).sort((a, b) => a[1] - b[1])[0];
   const weakName = resourceName(weak[0]);
 
@@ -197,12 +217,18 @@ function narratorCopy() {
     };
   }
 
+  const incidentTitle = localized(objective.title ?? objective.incident, nextThreat());
   const body = state.language === "it"
-    ? `${scene.name.it}. ${scene.lore.it} ${faction.name} osserva il rione: ${faction.archetype.it}, pressione ${faction.pressure}. ${npc?.name || "Qualcuno"} aspetta una scelta.`
-    : `${scene.name.en}. ${scene.lore.en} ${faction.name} is watching the district: ${faction.archetype.en}, pressure ${faction.pressure}. ${npc?.name || "Someone"} is waiting for a choice.`;
+    ? `${scene.name.it}: ${incidentTitle}`
+    : `${scene.name.en}: ${incidentTitle}`;
+  const favoredAction = objective.favoredAction || "talk";
+  const action = actionMeta(favoredAction);
+  const progress = Number(objective.progress || 0);
+  const target = Number(objective.target || 8);
+  const actionName = state.language === "it" ? action.it : action.en;
   const ask = state.language === "it"
-    ? `Obiettivo: resisti ${Math.max(0, 9 - state.day)} notti. Risorsa fragile: ${weakName} ${weak[1]}.`
-    : `Goal: survive ${Math.max(0, 9 - state.day)} nights. Fragile resource: ${weakName} ${weak[1]}.`;
+    ? `Ordine: ${npc?.name || "il gruppo"}. Azione consigliata: ${actionName}. Incidente ${progress}/${target}, ${turn.remaining} mosse.`
+    : `Order: ${npc?.name || "the group"}. Recommended action: ${actionName}. Incident ${progress}/${target}, ${turn.remaining} moves.`;
 
   return {
     title: state.language === "it" ? "La voce del rione" : "The district voice",
@@ -214,14 +240,14 @@ function narratorCopy() {
 function actionMeta(action) {
   const data = {
     talk: {
-      icon: "!",
+      icon: '"',
       it: "Ascolta",
       en: "Listen",
       itHelp: "+info, +fiducia. Le voci iniziano a circolare.",
       enHelp: "+intel, +trust. Rumors start moving."
     },
     recruit: {
-      icon: "^",
+      icon: "+",
       it: "Raduna",
       en: "Rally",
       itHelp: "+difesa, +coraggio, -cibo.",
@@ -262,18 +288,78 @@ function factionImpactText(npc, action) {
     .join(" · ");
 }
 
+function safeSceneObjective() {
+  try {
+    return getSceneObjective(state) || {};
+  } catch {
+    return {};
+  }
+}
+
+function safeActionForecast(action, npcId = state.activeNpc) {
+  try {
+    return getActionForecast(state, action, npcId) || {};
+  } catch {
+    return {};
+  }
+}
+
+function turnState() {
+  const max = Math.max(1, Number(state.turn?.max) || 4);
+  const spent = Math.max(0, Number(state.turn?.spent) || 0);
+  return {
+    max,
+    spent,
+    remaining: Math.max(0, max - spent),
+    progress: Number(state.turn?.sceneProgress) || 0,
+    usedByNpc: state.turn?.usedByNpc || {},
+    lastResult: state.turn?.lastResult || state.lastNotice || ""
+  };
+}
+
+function localized(value, fallback = "") {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value[state.language] ?? value.it ?? value.en ?? fallback;
+  return value ?? fallback;
+}
+
+function forecastRisk(forecast, action) {
+  const raw = localized(forecast.risk ?? forecast.riskLabel, action === "secret" ? "alto" : "contenuto");
+  return String(raw).toLowerCase();
+}
+
+function isHighRisk(forecast, action) {
+  const risk = forecastRisk(forecast, action);
+  return forecast.highRisk === true || Number(forecast.risk) >= 70 || /alto|high|critico|critical/.test(risk);
+}
+
 function render() {
+  worldRuntime?.destroy();
+  worldRuntime = null;
   app.innerHTML = `
     <main class="shell ${state.phase}">
       ${renderTopbar()}
       ${state.phase === "menu" ? renderMenu() : ""}
       ${state.phase === "landing" ? renderLanding() : ""}
+      ${state.phase === "intro" ? renderIntro() : ""}
       ${state.phase === "game" ? renderGame() : ""}
       ${state.phase === "crisis" ? renderCrisis() : ""}
       ${state.phase === "end" ? renderEnd() : ""}
     </main>
   `;
   bindEvents();
+  mountWorld();
+  scheduleFactionHighlightClear();
+}
+
+function scheduleFactionHighlightClear() {
+  window.clearTimeout(factionHighlightTimer);
+  if (!highlightedFactionSequence) return;
+  factionHighlightTimer = window.setTimeout(() => {
+    highlightedFactionSequence = null;
+    document.querySelectorAll(".faction-pills .shifted").forEach((button) => {
+      button.classList.remove("shifted", "shift-alert", "shift-positive");
+    });
+  }, 2600);
 }
 
 function renderTopbar() {
@@ -349,93 +435,223 @@ function renderLanding() {
   `;
 }
 
+function renderIntro() {
+  const step = Math.max(0, Math.min(2, Number(state.introStep) || 0));
+  const chapters = [
+    {
+      eyebrow: "La storia",
+      title: "Testaccio ha otto notti per non spezzarsi.",
+      body: "I quartieri vicini avanzano con offerte, pressioni e bande. Nel rione fame, paura e vecchi segreti dividono le persone. Teo, Edo, Jack, Marta e Miranda sono gli unici che possono tenere insieme la comunità.",
+      points: ["Ogni personaggio vive in una zona diversa.", "Le relazioni tra quartieri cambiano dopo ogni scelta.", "Le persone ricordano promesse, tradimenti e assenze."]
+    },
+    {
+      eyebrow: "Come si gioca",
+      title: "Quattro mosse ogni notte. Nessuna scelta è gratuita.",
+      body: "Scegli una zona, trova il personaggio adatto e affidagli un'azione. Ascoltare crea fiducia e informazioni; radunare aumenta la difesa; scambiare procura cibo; scavare nei segreti può cambiare tutto.",
+      points: ["Passa sul personaggio per riconoscerlo; clicca per selezionarlo.", "Leggi effetto e rischio prima di confermare.", "Chiudi la notte solo quando hai usato bene le mosse."]
+    },
+    {
+      eyebrow: "Il tuo obiettivo",
+      title: "Arriva all'alba dell'ottava notte con il rione ancora vivo.",
+      body: "Risolvi gli incidenti locali e proteggi salute, stabilità, fiducia e difesa. Non devi vincere ogni scontro: devi capire cosa salvare e quale quartiere può diventare alleato.",
+      points: ["Vinci mantenendo il rione unito fino alla notte 8.", "Perdi se le risorse vitali collassano o la comunità soccombe.", "Tre finali dipendono da alleanze, segreti e modo in cui hai governato."]
+    }
+  ];
+  const chapter = chapters[step];
+  return `
+    <section class="intro-screen">
+      <img src="./assets/key-art.png" alt="Testaccio di notte" class="intro-art">
+      <div class="intro-shade"></div>
+      <article class="intro-content">
+        <div class="intro-progress" aria-label="Passaggio ${step + 1} di 3">${chapters.map((_, index) => `<i class="${index <= step ? "active" : ""}"></i>`).join("")}</div>
+        <p class="kicker">${chapter.eyebrow} · ${step + 1}/3</p>
+        <h1>${chapter.title}</h1>
+        <p class="intro-body">${chapter.body}</p>
+        <ul>${chapter.points.map((point) => `<li>${point}</li>`).join("")}</ul>
+        <div class="intro-actions">
+          ${step > 0 ? `<button class="secondary" data-action="intro-back">Indietro</button>` : `<span></span>`}
+          <button class="primary" data-action="${step === 2 ? "begin-game" : "intro-next"}">${step === 2 ? "Entra nel rione" : "Continua"}</button>
+        </div>
+      </article>
+    </section>
+  `;
+}
+
 function renderGame() {
   const npc = state.npcs.find((item) => item.id === state.activeNpc);
-  const scene = getScene(state);
   return `
     <section class="game-screen">
-      ${renderNarrator()}
-      ${renderMission()}
-      ${renderResources()}
-      ${renderFactionStrip()}
-      <section class="map-stage" aria-label="${t("map")}">
-        <img class="district-art" src="${scene.image}" alt="" />
-        <div class="map-skyline"></div>
-        <div class="threat-ribbon">${nextThreat()}</div>
-        <div class="scene-switcher">${renderSceneButtons()}</div>
-        <div class="lore-ribbon">${scene.lore[state.language]}</div>
-        ${renderCharacterFocus(npc)}
-        <div class="district-grid">
-          ${renderBuildings()}
-          <button class="player-token walker" style="left:${scene.player[0]}%;top:${scene.player[1]}%;--delay:80ms" aria-label="player"></button>
-          ${state.npcs.map(renderNpcToken).join("")}
-        </div>
-        <div class="street-label">${scene.name[state.language]}</div>
-      </section>
-      <section class="bottom-sheet">
-        <div class="sheet-handle"></div>
-        <div class="npc-header">
-          <span class="portrait ${npc.id}" style="--tone:${npc.color}" aria-hidden="true"></span>
-          <div>
-            <h2>${npc.name}</h2>
-            <p>${label(npc.role)}</p>
-          </div>
-          <button class="icon-button" data-action="dashboard" aria-label="${t("dashboard")}">+</button>
-        </div>
-        ${renderNpcVitals(npc)}
-        <p class="dialogue">${makeDialogue(state, npc)}</p>
-        <div class="choice-grid">
-          ${["talk", "recruit", "trade", "secret"].map(renderActionButton).join("")}
-        </div>
-        <div class="button-row">
-          <button class="secondary" data-action="save">${t("save")}</button>
-          <button class="primary" data-action="advance">${state.day % 2 === 0 ? t("crisis") : t("next")}</button>
-        </div>
-        ${state.lastNotice ? `<p class="notice">${state.lastNotice}</p>` : ""}
-      </section>
-      ${renderDashboard()}
+      ${renderStatusRibbon()}
+      ${renderNarrator(true)}
+      <div class="command-layout">
+        <section class="map-stage" aria-label="${t("map")}">
+          <div class="world-mount" data-world-mount></div>
+          <div class="world-loading" data-world-loading><i></i><span>${state.language === "it" ? "Il rione si sveglia" : "The district wakes"}</span></div>
+          <div class="map-skyline"></div>
+          <div class="scene-switcher">${renderSceneButtons()}</div>
+          ${renderWorldInspector()}
+          ${renderWorldBeat()}
+        </section>
+        ${renderCommandRail(npc)}
+      </div>
     </section>
   `;
 }
 
-function renderNarrator() {
+function renderWorldBeat() {
+  if (!sceneBeat) return `<div class="world-beat" data-world-beat hidden></div>`;
+  return `
+    <section class="world-beat" data-world-beat style="--beat-color:${sceneBeat.color}">
+      <div><b>${sceneBeat.text}</b>${sceneBeat.detail ? `<small>${sceneBeat.detail}</small>` : ""}</div>
+      <button class="world-beat-close" data-action="dismiss-world-beat" aria-label="Chiudi messaggio" title="Chiudi">×</button>
+    </section>
+  `;
+}
+
+function renderStatusRibbon() {
+  const turn = turnState();
+  const critical = Object.entries(state.resources).sort((a, b) => a[1] - b[1])[0];
+  return `
+    <section class="status-ribbon" aria-label="Stato della notte">
+      <div class="night-marker"><small>Campagna</small><strong>NOTTE ${state.day} DI 8</strong></div>
+      <div class="campaign-goal"><small>Obiettivo finale</small><b>${state.language === "it" ? "Il rione deve arrivare unito all'alba dell'ottava notte" : "The district must reach the eighth dawn united"}</b></div>
+      <div class="action-ticks" aria-label="${turn.remaining} azioni rimaste"><small>Mosse</small><span>${Array.from({ length: turn.max }, (_, index) => `<i class="${index < turn.spent ? "spent" : ""}"></i>`).join("")}</span><b>${turn.remaining}</b></div>
+      <div class="critical-resource ${critical[1] < 28 ? "danger-zone" : ""}"><small>Risorsa più fragile</small><b>${resourceName(critical[0])} ${critical[1]}</b></div>
+    </section>
+  `;
+}
+
+function renderCommandRail(npc) {
+  const isDossier = state.activePanel !== "closed";
+  const here = Object.values(state.world?.agents || {}).filter((agent) => agent.sceneId === state.sceneId).length;
+  const elsewhere = Math.max(0, state.npcs.length - here);
+  return `
+    <aside class="command-rail" aria-label="Comandi">
+      <div class="rail-toolbar">
+        <div><b>${isDossier ? "Dossier" : "Comando"}</b>${!isDossier ? `<small>${here} qui · ${elsewhere} altrove</small>` : ""}</div>
+        <button class="secondary dossier-toggle" data-action="dashboard">${isDossier ? "Torna ai comandi" : "Trova personaggi"}</button>
+      </div>
+      ${isDossier ? renderDashboard() : renderCommandContent(npc)}
+    </aside>
+  `;
+}
+
+function renderCommandContent(npc) {
+  const scene = getScene(state);
+  const objective = safeSceneObjective();
+  const turn = turnState();
+  const title = localized(objective.title ?? objective.incident, nextThreat());
+  const stakes = localized(objective.stakes ?? objective.rule ?? objective.description, missionText());
+  const target = Math.max(1, Number(objective.target ?? objective.max ?? 100));
+  const progress = Math.max(0, Math.min(target, Number(objective.progress ?? turn.progress)));
+  const outcome = localized(turn.lastResult?.text, state.lastNotice);
+  const outcomeProgress = turn.lastResult?.progress
+    ? `${state.language === "it" ? "Progresso missione" : "Mission progress"}: ${turn.lastResult.progress.from} → ${turn.lastResult.progress.to}`
+    : "";
+  const favoredAction = objective.favoredAction || "talk";
+  const favoredMeta = actionMeta(favoredAction);
+  const favoredName = state.language === "it" ? favoredMeta.it : favoredMeta.en;
+  const remaining = Math.max(0, target - progress);
+  return `
+    <section class="incident-block">
+      <span>Missione della zona</span><h2>${title}</h2>
+      <p class="story-stakes">${localized(scene.front, stakes)}</p>
+      <div class="win-condition"><small>Per riuscirci</small><strong>Ottieni ancora ${remaining} punti in ${turn.remaining} mosse</strong></div>
+      <div class="incident-progress"><i style="--value:${progress / target * 100}%"></i><b>${progress}/${target}</b></div>
+      <div class="next-command"><span>Prossima mossa</span><b>Seleziona ${npc.name} e usa “${favoredName}”</b></div>
+    </section>
+    <section class="selected-character" style="--npc-color:${npc.color}">
+      <div class="selected-character-copy">
+        <small>Personaggio selezionato</small>
+        <h2>${npc.name}</h2>
+        <p>${npc.trait}</p>
+        <dl>
+          <div><dt>Fiducia</dt><dd>${npc.trust}</dd></div>
+          <div><dt>Coraggio</dt><dd>${npc.courage}</dd></div>
+          <div><dt>Paura</dt><dd>${npc.fear}</dd></div>
+        </dl>
+      </div>
+      <img class="selected-character-fullbody" src="${characterAssets[npc.id]}" alt="${npc.name}, personaggio selezionato" draggable="false">
+    </section>
+    ${renderRadialActions(npc)}
+    ${outcome ? `<section class="action-outcome" data-action-outcome><small>Esito dell'ultima azione</small><p>${outcome}</p>${outcomeProgress ? `<b>${outcomeProgress}</b>` : ""}</section>` : ""}
+    <section class="forecast-panel" data-forecast-panel>${renderForecast(favoredAction, npc.id, true)}</section>
+    <div class="inline-confirm" data-inline-confirm hidden></div>
+    <div class="rail-footer"><button class="primary close-night" data-action="advance">Chiudi la notte <small>-4 cibo · pressione sui vitali</small></button></div>
+  `;
+}
+
+function renderForecast(action, npcId, idle = false) {
+  const forecast = safeActionForecast(action, npcId);
+  const meta = actionMeta(action);
+  const npc = state.npcs.find((item) => item.id === npcId);
+  const name = state.language === "it" ? meta.it : meta.en;
+  const changes = forecast.values || forecast.changes || forecast.effects || {};
+  const entries = Array.isArray(changes) ? changes.map((value) => [value.stat, value]) : Object.entries(changes);
+  const rows = entries.slice(0, 4).map(([key, value]) => {
+    const current = value?.from ?? value?.current ?? state.resources[key] ?? npc?.[key];
+    const predicted = value?.to ?? value?.predicted ?? value?.next ?? (typeof value === "number" && Number.isFinite(current) ? current + value : value);
+    return `<span><em>${resourceName(key)}</em><b>${current ?? "-"} → ${predicted ?? "-"}</b></span>`;
+  }).join("");
+  const cost = forecast.costSlots ? `${forecast.costSlots} azione` : localized(forecast.cost, meta.itHelp);
+  const progress = forecast.progress && typeof forecast.progress === "object" ? `${forecast.progress.from} → ${forecast.progress.to} (+${forecast.progress.delta})` : localized(forecast.progress, "+ previsto");
+  return `
+    <div class="forecast-head"><small>${idle ? "Passa su un'azione" : "Previsione azione"}</small><h3>${name}</h3><strong class="risk-${isHighRisk(forecast, action) ? "high" : "normal"}">Rischio ${forecastRisk(forecast, action)}</strong></div>
+    <div class="forecast-facts"><span><em>Costo</em><b>${cost}</b></span><span><em>Progresso</em><b>${progress}</b></span></div>
+    ${rows ? `<div class="forecast-values">${rows}</div>` : ""}
+  `;
+}
+
+function renderNarrator(compact = false) {
   const copy = narratorCopy();
+  if (compact) {
+    const scene = getScene(state);
+    const objective = safeSceneObjective();
+    return `
+      <section class="narrator-bar compact" aria-label="Trama corrente">
+        <span><small>Ora</small><b>${scene.name[state.language]}</b></span>
+        <p data-narrator-body><strong>${localized(objective.incident, copy.body)}</strong>${localized(scene.front, copy.ask)}</p>
+        <span class="story-rule"><small>Regola del luogo</small><b>${localized(scene.rule)}</b></span>
+        <b data-narrator-ask hidden>${copy.ask}</b>
+      </section>
+    `;
+  }
   return `
     <section class="narrator-bar">
-      <span>${copy.title}</span>
-      <p>${copy.body}</p>
-      <b>${copy.ask}</b>
+      <p data-narrator-body>${copy.body}</p>
+      <b data-narrator-ask>${copy.ask}</b>
     </section>
   `;
 }
 
-function renderCharacterFocus(npc) {
+function renderWorldInspector() {
+  const npc = state.npcs.find((item) => item.id === state.activeNpc);
   return `
-    <aside class="character-focus">
+    <aside class="world-inspector" data-world-inspector hidden>
       <span class="portrait hero ${npc.id}" style="--tone:${npc.color}" aria-hidden="true"></span>
       <div>
         <b>${npc.name}</b>
         <small>${label(npc.role)}</small>
         <em>${state.language === "it" ? npc.trait : npc.trait}</em>
-        <strong>${leverageSummary(npc)}</strong>
+        <strong>trust ${npc.trust} · fear ${npc.fear} · courage ${npc.courage}</strong>
       </div>
     </aside>
   `;
 }
 
-function leverageSummary(npc) {
-  const ids = [...new Set(Object.values(npc.leverage || {}).flatMap((entry) => Object.keys(entry)))];
-  if (!ids.length) return "";
-  const names = ids.map(factionName).join(", ");
-  return state.language === "it" ? `Leve: ${names}` : `Levers: ${names}`;
-}
-
 function renderSceneButtons() {
-  return scenes.map((scene) => `
-    <button class="${scene.id === state.sceneId ? "active" : ""}" data-scene="${scene.id}">
-      ${scene.name[state.language]}
-    </button>
-  `).join("");
+  const currentIndex = Math.max(0, scenes.findIndex((scene) => scene.id === state.sceneId));
+  const previous = scenes[(currentIndex - 1 + scenes.length) % scenes.length];
+  const next = scenes[(currentIndex + 1) % scenes.length];
+  const previousLabel = state.language === "it" ? `Zona precedente: ${previous.name.it}` : `Previous area: ${previous.name.en}`;
+  const nextLabel = state.language === "it" ? `Zona successiva: ${next.name.it}` : `Next area: ${next.name.en}`;
+  return `
+    <button class="scene-step" data-scene="${previous.id}" aria-label="${previousLabel}" title="${previousLabel}" ${interactionBusy ? "disabled" : ""}>&lt;</button>
+    <select data-scene-select aria-label="${state.language === "it" ? "Zona di Testaccio" : "Testaccio area"}" ${interactionBusy ? "disabled" : ""}>
+      ${scenes.map((scene) => `<option value="${scene.id}" ${scene.id === state.sceneId ? "selected" : ""}>${scene.name[state.language]}</option>`).join("")}
+    </select>
+    <button class="scene-step" data-scene="${next.id}" aria-label="${nextLabel}" title="${nextLabel}" ${interactionBusy ? "disabled" : ""}>&gt;</button>
+  `;
 }
 
 function renderMission() {
@@ -468,15 +684,35 @@ function renderNpcVitals(npc) {
   `;
 }
 
-function renderActionButton(action) {
+function renderRadialActions(npc) {
+  const title = state.language === "it" ? `Azioni di ${npc.name}` : `${npc.name}'s actions`;
+  return `
+    <div class="action-toolbar" data-action-toolbar aria-label="${title}" style="--npc-color:${npc.color}">
+      ${["talk", "recruit", "trade", "secret"].map(renderRadialAction).join("")}
+    </div>
+  `;
+}
+
+function renderRadialAction(action) {
   const meta = actionMeta(action);
   const npc = state.npcs.find((item) => item.id === state.activeNpc);
+  const name = state.language === "it" ? meta.it : meta.en;
+  const help = state.language === "it" ? meta.itHelp : meta.enHelp;
+  const impact = factionImpactText(npc, action);
   return `
-    <button class="action-card" data-npc-action="${action}">
-      <span class="action-icon">${meta.icon}</span>
-      <b>${state.language === "it" ? meta.it : meta.en}</b>
-      <small>${state.language === "it" ? meta.itHelp : meta.enHelp}</small>
-      <em>${factionImpactText(npc, action)}</em>
+    <button
+      class="action-button action-${action}"
+      data-npc-action="${action}"
+      data-preview-title="${name}"
+      data-preview-help="${help}"
+      data-preview-factions="${impact}"
+      data-high-risk="${isHighRisk(safeActionForecast(action, npc.id), action)}"
+      aria-label="${name}. ${help} ${impact}"
+      title="${help} ${impact}"
+      ${interactionBusy ? "disabled" : ""}
+    >
+      <span class="action-glyph" aria-hidden="true">${meta.icon}</span>
+      <span class="action-copy"><b class="action-label">${name}</b><small>${help}</small></span>
     </button>
   `;
 }
@@ -508,6 +744,12 @@ function relationLabel(value) {
 
 function renderFactionStrip() {
   const active = getActiveFaction(state);
+  const latest = highlightedFactionSequence
+    ? state.factionEvents?.find((event) => event.sequence === highlightedFactionSequence)
+    : null;
+  const recentEvents = latest
+    ? state.factionEvents.filter((event) => event.sequence === latest.sequence)
+    : [];
   return `
     <section class="faction-strip">
       <div class="faction-alert" style="--faction:${active.color}">
@@ -516,74 +758,55 @@ function renderFactionStrip() {
         <small>${state.language === "it" ? "pressione" : "pressure"} ${active.pressure}</small>
       </div>
       <div class="faction-pills">
-        ${state.factions.map((faction) => `
-          <button class="${faction.id === active.id ? "active" : ""}" style="--faction:${faction.color}" data-panel="districts">
+        ${state.factions.map((faction) => {
+          const change = recentEvents.find((event) => event.id === faction.id);
+          const changeClass = !change ? "" : change.pressureDelta > 0 || change.relationDelta < 0 ? "shifted shift-alert" : "shifted shift-positive";
+          const changeTitle = !change ? "" : `${faction.name}: rel ${change.relationDelta > 0 ? "+" : ""}${change.relationDelta}, press ${change.pressureDelta > 0 ? "+" : ""}${change.pressureDelta}`;
+          return `
+          <button class="${faction.id === active.id ? "active" : ""} ${changeClass}" style="--faction:${faction.color}" data-panel="districts" ${changeTitle ? `title="${changeTitle}"` : ""}>
             <b>${faction.name}</b>
             <span>${relationLabel(faction.relation)} ${faction.relation > 0 ? "+" : ""}${faction.relation}</span>
           </button>
-        `).join("")}
+        `;
+        }).join("")}
       </div>
     </section>
   `;
 }
 
-function renderBuildings() {
-  const buildings = [
-    ["bar", 24, 55], ["mercato", 56, 35], ["clinica", 68, 62], ["cantina", 24, 30],
-    ["muro", 45, 72], ["confine", 77, 42], ["cortile", 42, 45], ["cocci", 17, 68]
-  ];
-  return buildings.map(([name, x, y], index) => `<span class="building b${index}" style="left:${x}%;top:${y}%">${name}</span>`).join("");
-}
-
-function renderNpcToken(npc) {
-  const scene = getScene(state);
-  const position = scene.positions[npc.id] || [npc.x, npc.y];
-  const delay = (state.npcs.findIndex((item) => item.id === npc.id) + 1) * 95;
-  return `
-    <button class="npc-token walker ${state.activeNpc === npc.id ? "selected" : ""} ${npc.fear > 55 ? "afraid" : ""}" data-npc="${npc.id}" style="left:${position[0]}%;top:${position[1]}%;--tone:${npc.color};--delay:${delay}ms" aria-label="${npc.name}">
-      <span class="token-face ${npc.id}"></span>
-      <small>${npc.name}</small>
-      <span class="hover-card">
-        <span class="portrait small ${npc.id}" aria-hidden="true"></span>
-        <b>${npc.name}</b>
-        <em>${label(npc.role)}</em>
-        <i>trust ${npc.trust} · fear ${npc.fear} · courage ${npc.courage}</i>
-      </span>
-    </button>
-  `;
-}
-
 function renderDashboard() {
+  const allowed = ["people", "districts", "journal", "inventory"];
+  if (!allowed.includes(state.activePanel)) state.activePanel = "people";
   return `
-    <aside class="dashboard ${state.activePanel === "closed" ? "closed" : ""}">
-      <div class="dash-head">
-        <b>${t("dashboard")}</b>
-        <button class="icon-button" data-action="close-dashboard">x</button>
-      </div>
-      <nav class="tabs">
-        ${["map", "people", "districts", "journal", "inventory", "ranks", "settings"].map((tab) => `
-          <button class="${state.activePanel === tab ? "active" : ""}" data-panel="${tab}">${t(tab)}</button>
+    <section class="dashboard">
+      <nav class="tabs" aria-label="Sezioni dossier">
+        ${[["people", "Persone"], ["districts", "Quartieri"], ["journal", "Cronaca"], ["inventory", "Scorte"]].map(([tab, text]) => `
+          <button class="${state.activePanel === tab ? "active" : ""}" data-panel="${tab}">${text}</button>
         `).join("")}
       </nav>
       <div class="panel">${renderPanel()}</div>
-    </aside>
+    </section>
   `;
 }
 
 function renderPanel() {
   if (state.activePanel === "closed") return "";
   if (state.activePanel === "people") {
-    return state.npcs.map((npc) => `
-      <article class="npc-card">
+    return state.npcs.map((npc) => {
+      const agent = state.world?.agents?.[npc.id];
+      const location = scenes.find((scene) => scene.id === agent?.sceneId)?.name[state.language] || getScene(state).name[state.language];
+      return `
+      <button class="npc-card ${npc.id === state.activeNpc ? "active" : ""}" data-roster-npc="${npc.id}">
         <span class="portrait small ${npc.id}" style="--tone:${npc.color}" aria-hidden="true"></span>
         <div>
           <b>${npc.name}</b>
           <p>${label(npc.role)}</p>
           <small>trust ${npc.trust} / fear ${npc.fear} / courage ${npc.courage}</small>
-          <small>${label(npc.routine)}</small>
+          <small>${location} · ${agent?.activity ? activityLabel(agent.activity) : label(npc.routine)}</small>
         </div>
-      </article>
-    `).join("");
+      </button>
+    `;
+    }).join("");
   }
   if (state.activePanel === "districts") {
     return `
@@ -627,7 +850,7 @@ function renderPanel() {
   if (state.activePanel === "inventory") {
     return `
       <div class="craft-grid">
-        ${Object.entries(state.inventory).map(([key, value]) => `<button data-craft="${key}"><b>${key}</b><span>${value}</span></button>`).join("")}
+        ${Object.entries(state.inventory).map(([key, value]) => `<button data-craft="${key}" ${interactionBusy ? "disabled" : ""}><b>${key}</b><span>${value}</span></button>`).join("")}
       </div>
       <p class="hint">Barricate aumentano difesa, kit migliorano salute, radio amplificano fiducia e informazioni.</p>
       ${Object.entries(state.metrics).map(([key, value]) => `<p class="meter"><span>${metricName(key)}</span><b>${value}</b></p>`).join("")}
@@ -654,13 +877,20 @@ function renderCrisis() {
   const crisis = state.pendingCrisis;
   return `
     <section class="crisis-screen">
+      ${renderNarrator()}
+      <div class="crisis-world">
+        <div class="world-mount" data-world-mount></div>
+        <div class="world-loading" data-world-loading><i></i><span>${state.language === "it" ? "Il confine si avvicina" : "The border approaches"}</span></div>
+        <div class="world-beat" data-world-beat hidden></div>
+        ${renderWorldInspector()}
+      </div>
       <div class="crisis-card">
         <p class="kicker">${t("crisis")} / ${t("day")} ${state.day}</p>
         <h1>${crisis.title[state.language]}</h1>
         <p>${crisis.text[state.language]}</p>
         <div class="tactical-grid">
           ${crisis.options.map((option) => `
-            <button data-crisis="${option.id}">
+            <button data-crisis="${option.id}" ${interactionBusy ? "disabled" : ""}>
               <b>${option[state.language]}</b>
               <small>${effectPreview(option.effects)}</small>
             </button>
@@ -700,48 +930,244 @@ function effectPreview(effects) {
   return Object.entries(effects).map(([key, value]) => `${key} ${value > 0 ? "+" : ""}${value}`).join(" / ");
 }
 
+function setInteractionBusy(next) {
+  interactionBusy = next;
+  if (next) hideRadialPreview();
+  document.querySelector(".shell")?.classList.toggle("is-directing", next);
+  document.querySelectorAll("[data-npc-action], [data-crisis], [data-craft], [data-scene], [data-scene-select], [data-action='advance']")
+    .forEach((control) => { control.disabled = next; });
+}
+
+function hideRadialPreview() {
+  const preview = document.querySelector("[data-radial-preview]");
+  if (preview) preview.hidden = true;
+}
+
+function showRadialPreview(button) {
+  const preview = document.querySelector("[data-forecast-panel]");
+  if (!preview || interactionBusy) return;
+  preview.innerHTML = renderForecast(button.dataset.npcAction, state.activeNpc);
+}
+
+function bindRadialPreview() {
+  document.querySelectorAll("[data-npc-action]").forEach((button) => {
+    button.addEventListener("pointerenter", () => showRadialPreview(button));
+    button.addEventListener("pointerleave", () => {});
+    button.addEventListener("focus", () => showRadialPreview(button));
+    button.addEventListener("blur", () => {});
+  });
+}
+
+function setNarratorBeat({ text, detail = "", color = "#d9b45f" }) {
+  const body = document.querySelector("[data-narrator-body]");
+  const ask = document.querySelector("[data-narrator-ask]");
+  const beat = document.querySelector("[data-world-beat]");
+  if (body) body.textContent = text;
+  if (ask && detail) ask.textContent = detail;
+  sceneBeat = { text, detail, color };
+  if (!beat) return;
+  beat.hidden = false;
+  beat.style.setProperty("--beat-color", color);
+  beat.innerHTML = `<div><b>${text}</b>${detail ? `<small>${detail}</small>` : ""}</div><button class="world-beat-close" data-action="dismiss-world-beat" aria-label="Chiudi messaggio" title="Chiudi">×</button>`;
+}
+
+function updateWorldInspector(id) {
+  const inspector = document.querySelector("[data-world-inspector]");
+  if (!inspector) return;
+  const npc = state.npcs.find((item) => item.id === id);
+  if (!npc) {
+    inspector.hidden = true;
+    return;
+  }
+  const agent = state.world?.agents?.[id];
+  inspector.hidden = false;
+  inspector.innerHTML = `
+    <span class="portrait hero ${npc.id}" style="--tone:${npc.color}" aria-hidden="true"></span>
+    <div>
+      <b>${npc.name}</b>
+      <small>${label(npc.role)}</small>
+      <em>${npc.trait} · ${activityLabel(agent?.activity)}</em>
+      <strong>trust ${npc.trust} · fear ${npc.fear} · courage ${npc.courage}</strong>
+    </div>
+  `;
+}
+
+function mountWorld() {
+  const mount = document.querySelector("[data-world-mount]");
+  if (!mount || !["game", "crisis"].includes(state.phase)) return;
+  const scene = getScene(state);
+  worldRuntime = new WorldRuntime({
+    mount,
+    state,
+    scene,
+    mode: state.phase,
+    onSelect: (id) => {
+      if (interactionBusy || state.phase !== "game") return;
+      worldRuntime?.snapshot();
+      sound.ui();
+      setState(selectNpc(state, id));
+    },
+    onHover: (id) => {
+      if (!interactionBusy) updateWorldInspector(id);
+    },
+    onBeat: setNarratorBeat,
+    onImpact: ({ type }) => {
+      if (type === "crisis") sound.crisis();
+      else sound.ui();
+    },
+    onSnapshot: (world) => {
+      state.world = world;
+      saveGame(state);
+    },
+    onReady: () => {
+      document.querySelector("[data-world-loading]")?.classList.add("loaded");
+      mount.classList.add("ready");
+    }
+  });
+  worldRuntime.start().catch(() => {
+    const loading = document.querySelector("[data-world-loading]");
+    if (loading) loading.textContent = state.language === "it" ? "La scena non riesce a caricarsi." : "The scene could not load.";
+  });
+}
+
+async function runNpcCommand(action) {
+  if (interactionBusy || !worldRuntime) return;
+  const npc = state.npcs.find((item) => item.id === state.activeNpc);
+  const meta = actionMeta(action);
+  const success = action !== "secret" || npc.trust + state.resources.intel + npc.courage > 112;
+  const actionLabel = state.language === "it" ? meta.it : meta.en;
+  const factionInfluence = factionImpactText(npc, action);
+  const impactText = factionInfluence ? `${actionLabel}: ${factionInfluence}` : actionLabel;
+  setInteractionBusy(true);
+  sound.action(action);
+  try {
+    await worldRuntime.playNpcAction(action, { language: state.language, impactText, success });
+    const next = npcAction(state, action);
+    highlightedFactionSequence = next.factionEvents?.[0]?.sequence || null;
+    interactionBusy = false;
+    setState(next);
+  } catch {
+    setInteractionBusy(false);
+  }
+}
+
+async function runCraftCommand(item) {
+  if (interactionBusy || !worldRuntime) return;
+  if (!canCraft(state, item)) {
+    setState(craft(state, item));
+    return;
+  }
+  setInteractionBusy(true);
+  sound.ui();
+  try {
+    await worldRuntime.playCraft(item, { language: state.language });
+    const next = craft(state, item);
+    interactionBusy = false;
+    setState(next);
+  } catch {
+    setInteractionBusy(false);
+  }
+}
+
+async function runCrisisCommand(optionId) {
+  if (interactionBusy || !worldRuntime) return;
+  const option = state.pendingCrisis?.options.find((item) => item.id === optionId);
+  setInteractionBusy(true);
+  sound.crisis();
+  try {
+    await worldRuntime.playCrisis(optionId, { language: state.language, label: option?.[state.language] || optionId });
+    const next = resolveCrisis(state, optionId);
+    interactionBusy = false;
+    setState(next);
+  } catch {
+    setInteractionBusy(false);
+  }
+}
+
+async function runSceneChange(sceneId) {
+  if (interactionBusy || !worldRuntime || sceneId === state.sceneId) return;
+  const target = scenes.find((scene) => scene.id === sceneId);
+  if (!target) return;
+  setInteractionBusy(true);
+  sound.scene();
+  try {
+    await worldRuntime.playSceneTransition(target, state.language);
+    const next = changeScene(state, sceneId);
+    interactionBusy = false;
+    setState(next);
+  } catch {
+    setInteractionBusy(false);
+  }
+}
+
+async function runAdvance() {
+  if (interactionBusy) return;
+  if (!worldRuntime) {
+    setState(advanceDay(state));
+    return;
+  }
+  setInteractionBusy(true);
+  if (state.day % 2 === 0) sound.crisis();
+  else sound.scene();
+  try {
+    const next = advanceDay(state);
+    interactionBusy = false;
+    setState(next);
+  } catch {
+    setInteractionBusy(false);
+  }
+}
+
 function bindEvents() {
+  bindRadialPreview();
   document.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => handleAction(button.dataset.action));
   });
-  document.querySelectorAll("[data-npc]").forEach((button) => {
-    button.addEventListener("mouseenter", () => sound.hover());
-    button.addEventListener("focus", () => sound.hover());
-    button.addEventListener("click", () => {
-      sound.ui();
-      setState(selectNpc(state, button.dataset.npc));
-    });
-  });
   document.querySelectorAll("[data-npc-action]").forEach((button) => {
     button.addEventListener("click", () => {
-      sound.action(button.dataset.npcAction);
-      setState(npcAction(state, button.dataset.npcAction));
+      const action = button.dataset.npcAction;
+      if (button.dataset.highRisk === "true" && pendingHighRiskAction !== action) {
+        pendingHighRiskAction = action;
+        const confirm = document.querySelector("[data-inline-confirm]");
+        if (confirm) {
+          confirm.hidden = false;
+          confirm.innerHTML = `<p><b>Rischio alto.</b> Questa scelta puo peggiorare fiducia e pressione sociale.</p><div><button class="secondary" data-cancel-risk>Annulla</button><button class="danger" data-confirm-risk="${action}">Conferma ${button.dataset.previewTitle}</button></div>`;
+          confirm.querySelector("[data-cancel-risk]")?.addEventListener("click", () => { pendingHighRiskAction = null; confirm.hidden = true; });
+          confirm.querySelector("[data-confirm-risk]")?.addEventListener("click", () => { pendingHighRiskAction = null; runNpcCommand(action); });
+        }
+        return;
+      }
+      pendingHighRiskAction = null;
+      runNpcCommand(action);
     });
   });
   document.querySelectorAll("[data-crisis]").forEach((button) => {
-    button.addEventListener("click", () => {
-      sound.crisis();
-      setState(resolveCrisis(state, button.dataset.crisis));
-    });
+    button.addEventListener("click", () => runCrisisCommand(button.dataset.crisis));
   });
   document.querySelectorAll("[data-panel]").forEach((button) => {
     button.addEventListener("click", () => {
+      worldRuntime?.snapshot();
       state.activePanel = button.dataset.panel;
       saveGame(state);
       render();
     });
   });
-  document.querySelectorAll("[data-craft]").forEach((button) => {
+  document.querySelectorAll("[data-roster-npc]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (interactionBusy) return;
+      worldRuntime?.snapshot();
       sound.ui();
-      setState(craft(state, button.dataset.craft));
+      setState(selectNpc(state, button.dataset.rosterNpc));
     });
   });
+  document.querySelectorAll("[data-craft]").forEach((button) => {
+    button.addEventListener("click", () => runCraftCommand(button.dataset.craft));
+  });
   document.querySelectorAll("[data-scene]").forEach((button) => {
-    button.addEventListener("click", () => {
-      sound.scene();
-      setState(changeScene(state, button.dataset.scene));
-    });
+    button.addEventListener("click", () => runSceneChange(button.dataset.scene));
+  });
+  document.querySelector("[data-scene-select]")?.addEventListener("change", (event) => {
+    runSceneChange(event.currentTarget.value);
   });
   document.querySelector('[data-form="login"]')?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -759,6 +1185,7 @@ function bindEvents() {
 }
 
 function handleAction(action) {
+  if (action !== "advance") worldRuntime?.snapshot();
   if (action !== "audio") sound.ui();
   if (action === "audio") {
     audioEnabled = !audioEnabled;
@@ -773,24 +1200,28 @@ function handleAction(action) {
   }
   if (action === "menu") setState({ ...state, phase: "menu" });
   if (action === "landing") setState({ ...state, phase: "landing" });
+  if (action === "dismiss-world-beat") {
+    sceneBeat = null;
+    document.querySelector("[data-world-beat]")?.setAttribute("hidden", "");
+  }
   if (action === "play") setState({ ...state, phase: state.finished ? "menu" : "game" });
+  if (action === "intro-next") setState({ ...state, introStep: Math.min(2, (Number(state.introStep) || 0) + 1) });
+  if (action === "intro-back") setState({ ...state, introStep: Math.max(0, (Number(state.introStep) || 0) - 1) });
+  if (action === "begin-game") {
+    const next = { ...state, phase: "game", introStep: 2, introSeen: true };
+    saveGame(next);
+    setState(next);
+  }
   if (action === "continue") setState(loadGame() || state);
-  if (action === "dashboard") setState({ ...state, activePanel: state.activePanel === "closed" ? "people" : state.activePanel });
+  if (action === "dashboard") setState({ ...state, activePanel: state.activePanel === "closed" ? "people" : "closed" });
   if (action === "close-dashboard") setState({ ...state, activePanel: "closed" });
   if (action === "toggle-lang") {
     state.language = state.language === "it" ? "en" : "it";
     saveGame(state);
     render();
   }
-  if (action === "save") {
-    state.lastNotice = t("saved");
-    saveGame(state);
-    render();
-  }
   if (action === "advance") {
-    if (state.day % 2 === 0) sound.crisis();
-    else sound.scene();
-    setState(advanceDay(state));
+    runAdvance();
   }
   if (action === "finish") {
     sound.crisis();

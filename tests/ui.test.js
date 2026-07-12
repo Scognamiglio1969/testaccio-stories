@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const runtime = readFileSync(new URL("../src/worldRuntime.js", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+
+assert.match(main, /data-action-toolbar/);
+assert.match(main, /selected-character-fullbody/);
+assert.match(main, /characterAssets\[npc\.id\]/);
+assert.match(main, /class="action-button action-\$\{action\}"/);
+assert.match(main, /data-forecast-panel/);
+assert.match(main, /getActionForecast\(state, action, npcId\)/);
+assert.match(main, /getSceneObjective\(state\)/);
+assert.match(main, /data-scene-select/);
+assert.match(main, /class="status-ribbon"/);
+assert.match(main, /class="command-rail"/);
+assert.match(main, /Chiudi la notte/);
+assert.match(main, /Persone.*Quartieri.*Cronaca.*Scorte/s);
+assert.match(main, /playSceneTransition\(target, state\.language\)/);
+assert.doesNotMatch(main, /data-action="save"/);
+assert.doesNotMatch(main, /class="action-card"/);
+
+assert.match(runtime, /positionActionWheel\(\)/);
+assert.match(runtime, /this\.hoveredId === this\.activeId/);
+assert.match(runtime, /this\.wheelHovered/);
+assert.match(runtime, /sharedImageCache/);
+assert.match(runtime, /performance\.now\(\) \+ 420/);
+assert.match(runtime, /!Number\.isFinite\(distance\) \|\| distance < 0\.006/);
+assert.match(runtime, /const clearance = metrics\.width \* 1\.05 \+ wheelRadius \+ 28/);
+assert.match(runtime, /hovered \? 1\.85/);
+assert.match(main, /class="win-condition"/);
+assert.match(main, /class="next-command"/);
+assert.match(main, /class="campaign-goal"/);
+assert.match(main, /class="action-copy"/);
+assert.match(main, /turn\.lastResult\?\.text/);
+assert.match(main, /data-action-outcome/);
+assert.match(main, /function renderWorldBeat/);
+assert.match(main, /dismiss-world-beat/);
+assert.match(main, /function renderIntro/);
+assert.match(main, /"begin-game"/);
+assert.match(main, /Trova personaggi/);
+assert.doesNotMatch(main, /class="lore-ribbon"/);
+assert.match(runtime, /imageSmoothingQuality = "high"/);
+assert.match(styles, /\.action-toolbar/);
+assert.match(styles, /\.forecast-panel/);
+assert.match(styles, /\.faction-pills button\.shifted/);
+assert.match(styles, /\.is-directing \.radial-actions/);
+assert.match(styles, /\.command-layout/);
+assert.match(styles, /grid-template-columns: minmax\(0, 1fr\) minmax\(380px, 420px\)/);
+
+console.log("Desktop UI contract test passed.");
