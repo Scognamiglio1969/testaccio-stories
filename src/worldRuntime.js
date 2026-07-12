@@ -7,6 +7,42 @@ const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const sharedImageCache = new Map();
 
+function npcReaction(npc, action, language = "it") {
+  const lines = {
+    marta: {
+      talk: ["Teo lascia parlare tutti, poi ricompone i pezzi.", "Teo lets everyone speak, then puts the pieces together."],
+      recruit: ["Teo chiama i nomi uno per uno: nessuno resta fuori.", "Teo calls each name: nobody is left out."],
+      trade: ["Teo controlla il patto due volte prima di annuire.", "Teo checks the deal twice before nodding."],
+      secret: ["Teo segue la voce fino a dove smette di sembrare una voce.", "Teo follows the rumor until it stops sounding like one."]
+    },
+    nando: {
+      talk: ["Edo ascolta in silenzio, ma non abbassa la guardia.", "Edo listens in silence, without dropping his guard."],
+      recruit: ["Edo trasforma l’angolo in un presidio.", "Edo turns the corner into a watch post."],
+      trade: ["Edo pesa le scorte come se fossero promesse.", "Edo weighs supplies like promises."],
+      secret: ["Edo controlla prima le uscite, poi l’indizio.", "Edo checks the exits before the clue."]
+    },
+    leila: {
+      talk: ["Jack raccoglie dettagli che gli altri avrebbero ignorato.", "Jack gathers details others would have missed."],
+      recruit: ["Jack fa passare il messaggio senza usare una sola sirena.", "Jack spreads the word without a single siren."],
+      trade: ["Jack trova un passaggio che non costa denaro.", "Jack finds a route that costs no money."],
+      secret: ["Jack registra il segno prima che qualcuno lo cancelli.", "Jack records the mark before someone erases it."]
+    },
+    ruggero: {
+      talk: ["Marta sposta la conversazione dove può fare male meno.", "Marta moves the conversation where it can hurt less."],
+      recruit: ["Marta dà a ciascuno un compito concreto.", "Marta gives everyone a concrete task."],
+      trade: ["Marta ottiene margine senza vendere il gruppo.", "Marta gains room without selling out the group."],
+      secret: ["Marta riconosce la menzogna dal silenzio intorno.", "Marta recognizes the lie from the silence around it."]
+    },
+    ilaria: {
+      talk: ["Miranda ricorda una frase sentita troppo tempo fa.", "Miranda remembers a sentence heard too long ago."],
+      recruit: ["Miranda fa sentire la squadra più grande di quanto sia.", "Miranda makes the team feel bigger than it is."],
+      trade: ["Miranda trova il prezzo nascosto dietro quello scritto.", "Miranda finds the hidden price behind the written one."],
+      secret: ["Miranda collega il segno a una storia che nessuno voleva riaprire.", "Miranda links the mark to a story nobody wanted reopened."]
+    }
+  };
+  return lines[npc?.id]?.[action]?.[language === "it" ? 0 : 1] || "";
+}
+
 function localizeActivity(value, language) {
   return activityLabels[value]?.[language] || value || (language === "it" ? "nel rione" : "in the district");
 }
@@ -699,7 +735,7 @@ export class WorldRuntime {
     const context = canvas.getContext("2d");
     context.drawImage(source, 0, 0);
     context.globalCompositeOperation = "source-atop";
-    context.fillStyle = hexToRgba(color, 0.72);
+    context.fillStyle = hexToRgba(color, 0.22);
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.globalCompositeOperation = "source-over";
     this.tintCache.set(key, canvas);
@@ -726,15 +762,19 @@ export class WorldRuntime {
         const height = 94 + (index % 2) * 8;
         const width = height * (image.width / image.height);
         context.save();
-        context.globalAlpha = presence.stance === "retreating" ? 0.48 : 0.8;
+        context.globalAlpha = presence.stance === "retreating" ? 0.66 : 0.97;
         context.fillStyle = "rgba(0,0,0,0.42)";
         context.beginPath();
         context.ellipse(x, y + 4, 21, 7, 0, 0, Math.PI * 2);
         context.fill();
         context.drawImage(image, x - width / 2, y - height, width, height);
+        context.globalAlpha = 0.9;
+        context.fillStyle = visual.color;
+        context.fillRect(x - width * 0.28, y - height * 0.46, width * 0.56, 5);
         context.restore();
       }
-      const label = `${presence.name} · ${presence.stance}`;
+      const role = presence.factionId === "trullo" ? "banda" : presence.stance === "hostile" ? "pattuglia" : "delegazione";
+      const label = `${presence.name} · ${role}`;
       context.save();
       context.font = "700 11px Inter, system-ui, sans-serif";
       const labelWidth = context.measureText(label).width + 18;
@@ -777,7 +817,7 @@ export class WorldRuntime {
     const phase = agent.moving ? (Number(agent.stepPhase) || 0) : time / 1000 * 1.7 + index * 1.9;
     const stride = clamp((Number(agent.speed) || 0) / Math.max(0.04, Number(agent.pace) || 0.055));
     const footfall = agent.moving ? Math.abs(Math.sin(phase)) : 0;
-    const bob = agent.moving ? footfall * 3.2 * stride : Math.sin(phase) * 1.1;
+    const bob = 0;
     const sway = agent.moving ? Math.sin(phase) * 0.014 * stride : Math.sin(phase) * 0.005;
     const selected = agent.id === this.activeId;
     const hovered = agent.id === this.hoveredId;
@@ -798,7 +838,7 @@ export class WorldRuntime {
     context.restore();
 
     context.save();
-    context.translate(metrics.x, metrics.y - bob);
+    context.translate(metrics.x, metrics.y);
     const focusScale = hovered ? 1.85 : selected ? 1.05 : 1;
     const walkWave = agent.moving ? Math.sin(phase) * stride : 0;
     context.scale((agent.direction < 0 ? -1 : 1) * focusScale * (1 + Math.abs(walkWave) * 0.025), focusScale * (1 - Math.abs(walkWave) * 0.018));
@@ -1036,7 +1076,8 @@ export class WorldRuntime {
     if (!this.sequenceActive(token)) return false;
     this.onImpact?.({ type: "npc-action", action });
     this.effect("float", { x: anchor.x, y: anchor.y - 0.05, color: presentation.color, text: impactText || beats[2], duration: 1100 });
-    this.beat(beats[2], impactText, presentation.color);
+    const reaction = npcReaction(this.state.npcs.find((npc) => npc.id === active.id), action, language);
+    this.beat(beats[2], [reaction, impactText].filter(Boolean).join(" "), presentation.color);
     if (!await this.wait(380, token)) return false;
     this.transientProps = [];
     ids.forEach((id) => {

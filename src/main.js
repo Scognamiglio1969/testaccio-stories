@@ -969,6 +969,10 @@ function setNarratorBeat({ text, detail = "", color = "#d9b45f" }) {
   beat.hidden = false;
   beat.style.setProperty("--beat-color", color);
   beat.innerHTML = `<div><b>${text}</b>${detail ? `<small>${detail}</small>` : ""}</div><button class="world-beat-close" data-action="dismiss-world-beat" aria-label="Chiudi messaggio" title="Chiudi">×</button>`;
+  beat.querySelector("[data-action='dismiss-world-beat']")?.addEventListener("click", () => {
+    sceneBeat = null;
+    beat.setAttribute("hidden", "");
+  });
 }
 
 function updateWorldInspector(id) {
