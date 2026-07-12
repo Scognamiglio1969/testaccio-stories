@@ -552,6 +552,8 @@ function renderCommandContent(npc) {
   const favoredMeta = actionMeta(favoredAction);
   const favoredName = state.language === "it" ? favoredMeta.it : favoredMeta.en;
   const remaining = Math.max(0, target - progress);
+  const encounter = (state.world?.factionPresence || []).find((presence) => presence.sceneId === state.sceneId && presence.stance !== "retreating");
+  const encounterAction = encounter?.stance === "hostile" ? "Raduna o Ascolta: evita che la tensione diventi scontro." : encounter ? "Ascolta o Scambia: puoi trasformare il passaggio in un contatto utile." : "";
   return `
     <section class="incident-block">
       <span>Missione della zona</span><h2>${title}</h2>
@@ -560,6 +562,7 @@ function renderCommandContent(npc) {
       <div class="incident-progress"><i style="--value:${progress / target * 100}%"></i><b>${progress}/${target}</b></div>
       <div class="next-command"><span>Prossima mossa</span><b>Seleziona ${npc.name} e usa “${favoredName}”</b></div>
     </section>
+    ${encounter ? `<section class="district-encounter"><small>Gruppo presente</small><b>${encounter.name} · ${encounter.stance === "hostile" ? "tensione alta" : "in osservazione"}</b><p>${encounterAction}</p></section>` : ""}
     <section class="selected-character" style="--npc-color:${npc.color}">
       <div class="selected-character-copy">
         <small>Personaggio selezionato</small>

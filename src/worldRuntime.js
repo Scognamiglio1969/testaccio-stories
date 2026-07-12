@@ -753,19 +753,21 @@ export class WorldRuntime {
       const baseX = presence.kind === "ambient" ? anchor.x * this.width : presence.visualX * this.width;
       const baseY = anchor.y * this.height + (presence.slot || 0) * 10;
       const memberIds = ["nando", "ruggero", "leila", "marta", "ilaria"];
+      const leadMetrics = this.visibleAgents()[0] ? this.agentMetrics(this.visibleAgents()[0]) : { height: 124 };
+      const height = Math.max(118, leadMetrics.height);
+      const spacing = Math.max(64, height * 0.56);
+      const direction = anchor.x > 0.5 ? -1 : 1;
       for (let index = 0; index < presence.members; index += 1) {
         const image = this.tintedCharacter(memberIds[index % memberIds.length], visual.color);
         if (!image) continue;
-        const formation = visual.posture === "tight" ? index * 24 : index * 31;
-        const x = baseX + formation - (presence.members - 1) * 13;
-        const y = baseY + (index % 2) * 17;
-        const height = 94 + (index % 2) * 8;
+        const x = clamp(baseX + direction * index * spacing, height * 0.3, this.width - height * 0.3);
+        const y = baseY;
         const width = height * (image.width / image.height);
         context.save();
         context.globalAlpha = presence.stance === "retreating" ? 0.66 : 0.97;
         context.fillStyle = "rgba(0,0,0,0.42)";
         context.beginPath();
-        context.ellipse(x, y + 4, 21, 7, 0, 0, Math.PI * 2);
+        context.ellipse(x, y + 4, width * 0.35, 8, 0, 0, Math.PI * 2);
         context.fill();
         context.drawImage(image, x - width / 2, y - height, width, height);
         context.globalAlpha = 0.9;
@@ -929,6 +931,29 @@ export class WorldRuntime {
         context.arc(to.x, to.y, 4 + progress * 3, 0, Math.PI * 2);
         context.fill();
       }
+      if (effect.type === "handoff") {
+        const from = effect.from || { x: x - 64, y: y - 32 };
+        const to = effect.to || { x: x + 64, y: y - 32 };
+        const parcelX = from.x + (to.x - from.x) * progress;
+        const parcelY = from.y + (to.y - from.y) * progress - Math.sin(progress * Math.PI) * 22;
+        context.fillStyle = effect.color || "#74c7cb";
+        context.fillRect(parcelX - 9, parcelY - 7, 18, 14);
+        context.strokeStyle = "#f2eadf";
+        context.strokeRect(parcelX - 9, parcelY - 7, 18, 14);
+      }
+      if (effect.type === "standoff") {
+        context.lineWidth = 3;
+        context.strokeStyle = effect.color || "#d85b4b";
+        [-1, 1].forEach((side) => {
+          context.beginPath();
+          context.moveTo(x + side * (110 - progress * 44), y - 8);
+          context.lineTo(x + side * (76 - progress * 22), y - 8);
+          context.stroke();
+        });
+        context.beginPath();
+        context.arc(x, y - 8, 16 + progress * 18, 0, Math.PI * 2);
+        context.stroke();
+      }
       if (effect.type === "footfall") {
         context.globalAlpha = (1 - progress) * 0.34;
         context.lineWidth = 1;
@@ -1069,8 +1094,13 @@ export class WorldRuntime {
       this.effect("speech", { color: presentation.color, duration: 1050, from: { x: left.x, y: left.y - 70 }, to: { x: right.x, y: right.y - 70 } });
     }
     if (action === "recruit") this.effect("rally", { x: anchor.x, y: anchor.y, color: presentation.color, duration: 1100 });
-    if (action === "trade") this.transientProps = [{ id: "trade-crate", type: "supplies", sceneId: this.scene.id, anchor: "trade" }];
+    if (action === "trade") {
+      this.transientProps = [{ id: "trade-crate", type: "supplies", sceneId: this.scene.id, anchor: "trade" }];
+      this.effect("handoff", { x: anchor.x, y: anchor.y, color: presentation.color, duration: 1200 });
+    }
     if (action === "secret") this.effect("secret", { x: anchor.x, y: anchor.y, color: success ? "#d9b45f" : "#d85b4b", duration: 1150 });
+    const hostile = this.world.factionPresence.find((presence) => presence.sceneId === this.scene.id && presence.stance === "hostile");
+    if (hostile) this.effect("standoff", { x: anchor.x, y: anchor.y, color: factionVisuals[hostile.factionId]?.color || "#d85b4b", duration: 1350 });
     if (!await this.wait(420, token)) return false;
 
     if (!this.sequenceActive(token)) return false;

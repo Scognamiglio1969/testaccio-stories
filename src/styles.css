@@ -1746,6 +1746,10 @@ h3 {
   .next-command { display: grid; gap: 2px; margin-top: 9px; padding: 7px 8px; border-left: 3px solid var(--green); background: rgba(121, 213, 138, .08); }
   .next-command span { color: var(--green); font-size: .58rem; font-weight: 850; text-transform: uppercase; }
   .next-command b { color: #eef8eb; font-size: .76rem; }
+  .district-encounter { margin: 7px 0; padding: 8px 10px; border-left: 3px solid var(--red); background: rgba(216, 91, 75, .08); }
+  .district-encounter small { display: block; color: var(--muted); font-size: .6rem; font-weight: 800; text-transform: uppercase; }
+  .district-encounter b { display: block; margin-top: 2px; color: #fff0d9; font-size: .78rem; }
+  .district-encounter p { margin: 4px 0 0; color: #d8cec1; font-size: .7rem; line-height: 1.25; }
   .objective-command { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
   .objective-command strong { color: var(--green); font-size: .8rem; }
   .objective-command small { color: #d6cec1; font-size: .68rem; white-space: nowrap; }

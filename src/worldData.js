@@ -74,7 +74,7 @@ export const sceneGraphs = {
       east: [0.9, 0.35], river: [0.48, 0.66], lookout: [0.36, 0.53], barricade: [0.73, 0.59], south: [0.44, 0.76]
     },
     [["west", "stairs"], ["stairs", "landing"], ["stairs", "south"], ["landing", "bridge"], ["landing", "river"], ["landing", "lookout"], ["bridge", "lamp"], ["bridge", "barricade"], ["lamp", "east"], ["barricade", "east"], ["river", "south"]],
-    { talk: "landing", gather: "bridge", trade: "stairs", defend: "barricade", secret: "river", care: "south", scout: "lookout", exit: "east" }
+    { talk: "landing", gather: "bridge", trade: "stairs", defend: "barricade", secret: "lookout", care: "south", scout: "lookout", exit: "east" }
   ),
   lupa: makeGraph(
     {
@@ -82,7 +82,7 @@ export const sceneGraphs = {
       stairs: [0.69, 0.55], alley: [0.25, 0.57], drain: [0.43, 0.76], roof: [0.52, 0.5], south: [0.66, 0.8]
     },
     [["west", "court"], ["court", "alley"], ["court", "bench"], ["court", "drain"], ["alley", "mural"], ["mural", "stairs"], ["mural", "roof"], ["bench", "gate"], ["bench", "south"], ["stairs", "gate"], ["drain", "south"]],
-    { talk: "bench", gather: "mural", trade: "court", defend: "gate", secret: "drain", care: "south", scout: "roof", exit: "gate" }
+    { talk: "bench", gather: "mural", trade: "court", defend: "gate", secret: "drain", care: "south", scout: "stairs", exit: "gate" }
   ),
   monte: makeGraph(
     {

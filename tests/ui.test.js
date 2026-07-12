@@ -37,6 +37,7 @@ assert.match(main, /turn\.lastResult\?\.text/);
 assert.match(main, /data-action-outcome/);
 assert.match(main, /function renderWorldBeat/);
 assert.match(main, /dismiss-world-beat/);
+assert.match(main, /district-encounter/);
 assert.match(main, /function renderIntro/);
 assert.match(main, /"begin-game"/);
 assert.match(main, /Trova personaggi/);
