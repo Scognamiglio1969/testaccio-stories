@@ -381,6 +381,42 @@ export function npcAction(state, action) {
   return next;
 }
 
+export function respondToFaction(state, factionId, response) {
+  const next = copy(state);
+  if ((next.turn?.spent || 0) >= (next.turn?.max || 4)) {
+    next.lastNotice = next.language === "it" ? "Non restano mosse per rispondere." : "No moves remain to answer.";
+    return next;
+  }
+  const faction = next.factions.find((item) => item.id === factionId);
+  const npc = next.npcs.find((item) => item.id === next.activeNpc);
+  const presence = next.world?.factionPresence?.find((item) => item.factionId === factionId && item.sceneId === next.sceneId);
+  if (!faction || !npc || !presence) return next;
+  const effects = {
+    negotiate: { relation: 6, pressure: -4, trust: 3, defense: 0 },
+    stand: { relation: -2, pressure: -6, trust: 1, defense: 4 },
+    refuse: { relation: -6, pressure: 5, trust: -2, defense: 0 }
+  }[response] || { relation: 0, pressure: 0, trust: 0, defense: 0 };
+  faction.relation = clamp(faction.relation + effects.relation, -100, 100);
+  faction.pressure = clamp(faction.pressure + effects.pressure, 0, 100);
+  next.resources.trust = clamp(next.resources.trust + effects.trust);
+  next.resources.defense = clamp(next.resources.defense + effects.defense);
+  npc.courage = clamp(npc.courage + (response === "stand" ? 3 : response === "refuse" ? 1 : 0));
+  next.turn.spent += 1;
+  presence.responsePending = false;
+  presence.stance = response === "negotiate" ? "allied" : "retreating";
+  next.world.props = [...(next.world.props || []), { type: "faction-cooldown", factionId, expiresCycle: (next.world.cycle || 0) + 3 }].slice(-14);
+  const copyText = {
+    negotiate: [`${npc.name} tratta con ${faction.name}: la pressione cala, il rapporto migliora.`, `${npc.name} negotiates with ${faction.name}: pressure falls and relations improve.`],
+    stand: [`${npc.name} tiene il confine: ${faction.name} arretra, ma ricorderà la sfida.`, `${npc.name} holds the border: ${faction.name} retreats but will remember the challenge.`],
+    refuse: [`${npc.name} rifiuta la richiesta: ${faction.name} se ne va promettendo conseguenze.`, `${npc.name} rejects the demand: ${faction.name} leaves promising consequences.`]
+  }[response];
+  next.turn.lastResult = { text: { it: copyText[0], en: copyText[1] }, at: Date.now() };
+  next.lastNotice = copyText[next.language === "it" ? 0 : 1];
+  next.journal.unshift(entry(next, copyText[0], copyText[1]));
+  saveGame(next);
+  return next;
+}
+
 function applyFactionEffects(state, npc, action, success) {
   const sequence = `${state.day}-${npc.id}-${action}-${state.factionEvents?.length || 0}`;
   getFactionActionEffects(npc, action, success).forEach((effect) => {

@@ -18,6 +18,7 @@ import {
   makeDialogue,
   npcAction,
   resetGame,
+  respondToFaction,
   resolveCrisis,
   saveGame,
   selectNpc
@@ -33,6 +34,15 @@ let sceneBeat = null;
 let highlightedFactionSequence = null;
 let factionHighlightTimer = null;
 let pendingHighRiskAction = null;
+
+app.addEventListener("click", (event) => {
+  const close = event.target.closest("[data-action='dismiss-world-beat']");
+  if (!close) return;
+  event.preventDefault();
+  event.stopPropagation();
+  sceneBeat = null;
+  close.closest("[data-world-beat]")?.setAttribute("hidden", "");
+});
 
 const sound = {
   context: null,
@@ -553,7 +563,7 @@ function renderCommandContent(npc) {
   const favoredName = state.language === "it" ? favoredMeta.it : favoredMeta.en;
   const remaining = Math.max(0, target - progress);
   const encounter = (state.world?.factionPresence || []).find((presence) => presence.sceneId === state.sceneId && presence.stance !== "retreating");
-  const encounterAction = encounter?.stance === "hostile" ? "Raduna o Ascolta: evita che la tensione diventi scontro." : encounter ? "Ascolta o Scambia: puoi trasformare il passaggio in un contatto utile." : "";
+  const encounterAction = encounter?.message || "Il gruppo aspetta una risposta.";
   return `
     <section class="incident-block">
       <span>Missione della zona</span><h2>${title}</h2>
@@ -562,7 +572,7 @@ function renderCommandContent(npc) {
       <div class="incident-progress"><i style="--value:${progress / target * 100}%"></i><b>${progress}/${target}</b></div>
       <div class="next-command"><span>Prossima mossa</span><b>Seleziona ${npc.name} e usa “${favoredName}”</b></div>
     </section>
-    ${encounter ? `<section class="district-encounter"><small>Gruppo presente</small><b>${encounter.name} · ${encounter.stance === "hostile" ? "tensione alta" : "in osservazione"}</b><p>${encounterAction}</p></section>` : ""}
+    ${encounter ? `<section class="district-encounter"><small>Messaggio da ${encounter.name}</small><b>${encounter.stance === "hostile" ? "Si avvicinano con tensione" : "Chiedono di parlare"}</b><p>${encounterAction}</p>${encounter.responsePending ? `<div class="encounter-responses"><button data-rival-response="negotiate" data-faction-id="${encounter.factionId}">Negozia</button><button data-rival-response="stand" data-faction-id="${encounter.factionId}">Tieni il punto</button><button data-rival-response="refuse" data-faction-id="${encounter.factionId}">Rifiuta</button></div>` : `<em>Risposta data</em>`}</section>` : ""}
     <section class="selected-character" style="--npc-color:${npc.color}">
       <div class="selected-character-copy">
         <small>Personaggio selezionato</small>
@@ -1058,6 +1068,21 @@ async function runNpcCommand(action) {
   }
 }
 
+async function runFactionResponse(response, factionId) {
+  if (interactionBusy || !worldRuntime) return;
+  const presence = state.world?.factionPresence?.find((item) => item.factionId === factionId && item.sceneId === state.sceneId);
+  if (!presence) return;
+  setInteractionBusy(true);
+  sound.action(response === "negotiate" ? "talk" : "recruit");
+  try {
+    await worldRuntime.playFactionResponse(response, presence, { language: state.language });
+    interactionBusy = false;
+    setState(respondToFaction(state, factionId, response));
+  } catch {
+    setInteractionBusy(false);
+  }
+}
+
 async function runCraftCommand(item) {
   if (interactionBusy || !worldRuntime) return;
   if (!canCraft(state, item)) {
@@ -1147,6 +1172,9 @@ function bindEvents() {
       pendingHighRiskAction = null;
       runNpcCommand(action);
     });
+  });
+  document.querySelectorAll("[data-rival-response]").forEach((button) => {
+    button.addEventListener("click", () => runFactionResponse(button.dataset.rivalResponse, button.dataset.factionId));
   });
   document.querySelectorAll("[data-crisis]").forEach((button) => {
     button.addEventListener("click", () => runCrisisCommand(button.dataset.crisis));

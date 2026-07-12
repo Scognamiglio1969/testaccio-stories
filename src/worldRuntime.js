@@ -43,6 +43,17 @@ function npcReaction(npc, action, language = "it") {
   return lines[npc?.id]?.[action]?.[language === "it" ? 0 : 1] || "";
 }
 
+function factionMessage(factionId, language = "it") {
+  const messages = {
+    trastevere: ["Trastevere chiede un patto: passaggio libero in cambio di sostegno alla prossima crisi.", "Trastevere asks for a pact: free passage in exchange for support in the next crisis."],
+    centro: ["Il Centro Storico vuole una dichiarazione pubblica e pretende che Testaccio scelga da che parte stare.", "The Historic Centre wants a public statement and demands that Testaccio choose a side."],
+    trullo: ["Il Trullo pretende scorte per lasciare tranquillo il confine questa notte.", "Trullo demands supplies to leave the border alone tonight."],
+    romaest: ["Roma Est propone un presidio comune, ma vuole guidarlo.", "Roma Est proposes a joint watch, but wants to lead it."],
+    romanord: ["Roma Nord offre denaro in cambio dell'accesso alle informazioni del rione.", "Roma Nord offers money in exchange for access to district intelligence."]
+  };
+  return messages[factionId]?.[language === "it" ? 0 : 1] || "";
+}
+
 function localizeActivity(value, language) {
   return activityLabels[value]?.[language] || value || (language === "it" ? "nel rione" : "in the district");
 }
@@ -403,7 +414,11 @@ export class WorldRuntime {
     const existing = this.world.factionPresence || [];
     const crisisPresence = existing.filter((presence) => presence.kind !== "ambient");
     const otherAmbient = existing.filter((presence) => presence.kind === "ambient" && presence.sceneId !== sceneId);
+    const cooldowns = new Set((this.world.props || [])
+      .filter((prop) => prop.type === "faction-cooldown" && prop.expiresCycle > this.routineCycle)
+      .map((prop) => prop.factionId));
     const candidates = [...this.state.factions]
+      .filter((faction) => !cooldowns.has(faction.id))
       .sort((left, right) => right.pressure - left.pressure || left.relation - right.relation);
     const count = candidates[0]?.pressure > 42 || this.routineCycle % 3 === 0 ? 2 : 1;
     const start = this.routineCycle % Math.max(1, candidates.length);
@@ -419,8 +434,10 @@ export class WorldRuntime {
         pressure: faction.pressure,
         stance: faction.relation >= 20 ? "open" : faction.relation > -20 ? "watching" : "hostile",
         members: faction.pressure >= 55 ? 3 : 2,
-        anchor: slot ? "defend" : "exit",
+        anchor: slot ? "exit" : "talk",
         slot,
+        responsePending: slot === 0,
+        message: factionMessage(faction.id, this.state.language),
         visualX: 1.04
       }));
     this.world.factionPresence = [...crisisPresence, ...otherAmbient, ...visitors].slice(-8);
@@ -816,11 +833,11 @@ export class WorldRuntime {
     const image = this.images.get(`character:${agent.id}`);
     if (!image) return;
     const metrics = this.agentMetrics(agent);
-    const phase = agent.moving ? (Number(agent.stepPhase) || 0) : time / 1000 * 1.7 + index * 1.9;
+    const phase = agent.moving ? (Number(agent.stepPhase) || 0) : index * 1.9;
     const stride = clamp((Number(agent.speed) || 0) / Math.max(0.04, Number(agent.pace) || 0.055));
     const footfall = agent.moving ? Math.abs(Math.sin(phase)) : 0;
     const bob = 0;
-    const sway = agent.moving ? Math.sin(phase) * 0.014 * stride : Math.sin(phase) * 0.005;
+    const sway = agent.moving ? Math.sin(phase) * 0.014 * stride : 0;
     const selected = agent.id === this.activeId;
     const hovered = agent.id === this.hoveredId;
 
@@ -1116,6 +1133,34 @@ export class WorldRuntime {
     });
     this.busy = false;
     this.canvas.classList.remove("directing");
+    this.snapshot();
+    return true;
+  }
+
+  async playFactionResponse(response, presence, { language = "it" } = {}) {
+    if (this.busy || !presence) return false;
+    this.clearHover();
+    this.busy = true;
+    const token = this.beginSequence();
+    const active = this.ensureInScene(this.activeId);
+    setAgentDestination(this.world, active.id, "talk", this.scene.id, [-0.04, 0]);
+    active.pace = 0.2;
+    active.activity = "facing the delegation";
+    const arrival = await this.waitForAgents([active.id], 1300, token);
+    if (arrival.status === "cancelled") return false;
+    const color = factionVisuals[presence.factionId]?.color || "#d85b4b";
+    const labels = {
+      negotiate: language === "it" ? "Si apre una trattativa" : "Negotiations begin",
+      stand: language === "it" ? "Testaccio tiene il punto" : "Testaccio holds its ground",
+      refuse: language === "it" ? "La richiesta viene respinta" : "The demand is rejected"
+    };
+    if (response === "negotiate") this.effect("speech", { color, duration: 1500, from: { x: active.x * this.width, y: active.y * this.height - 70 }, to: { x: (active.x + 0.16) * this.width, y: active.y * this.height - 70 } });
+    else this.effect("standoff", { x: active.x, y: active.y, color, duration: 1600 });
+    this.beat(labels[response], presence.message, color);
+    if (!await this.wait(850, token)) return false;
+    presence.responsePending = false;
+    presence.stance = response === "negotiate" ? "allied" : "retreating";
+    this.busy = false;
     this.snapshot();
     return true;
   }

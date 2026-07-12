@@ -1750,6 +1750,12 @@ h3 {
   .district-encounter small { display: block; color: var(--muted); font-size: .6rem; font-weight: 800; text-transform: uppercase; }
   .district-encounter b { display: block; margin-top: 2px; color: #fff0d9; font-size: .78rem; }
   .district-encounter p { margin: 4px 0 0; color: #d8cec1; font-size: .7rem; line-height: 1.25; }
+  .district-encounter em { display: block; margin-top: 6px; color: var(--green); font-size: .66rem; font-style: normal; }
+  .encounter-responses { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
+  .encounter-responses button { min-height: 34px; padding: 4px; border-radius: 4px; font-size: .64rem; font-weight: 800; }
+  .encounter-responses button:nth-child(1) { border-color: rgba(116,199,203,.55); }
+  .encounter-responses button:nth-child(2) { border-color: rgba(217,180,95,.55); }
+  .encounter-responses button:nth-child(3) { border-color: rgba(216,91,75,.55); }
   .objective-command { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
   .objective-command strong { color: var(--green); font-size: .8rem; }
   .objective-command small { color: #d6cec1; font-size: .68rem; white-space: nowrap; }
@@ -2316,6 +2322,8 @@ h3 {
   pointer-events: auto;
   animation: beatReveal 260ms ease both;
 }
+
+.world-beat[hidden] { display: none; }
 
 .world-beat b { display: block; color: #fff5e4; font-size: .9rem; }
 .world-beat small { display: block; margin-top: 4px; color: #d9cdbd; font-size: .72rem; font-weight: 600; line-height: 1.3; }
