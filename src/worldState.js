@@ -15,6 +15,22 @@ export function nearestNode(sceneId, x, y) {
   }, null)?.id;
 }
 
+export function projectToTerrain(sceneId, x, y) {
+  const graph = graphFor(sceneId);
+  return graph.edges.reduce((best, [fromId, toId]) => {
+    const from = graph.nodes[fromId];
+    const to = graph.nodes[toId];
+    if (!from || !to) return best;
+    const vx = to.x - from.x;
+    const vy = to.y - from.y;
+    const lengthSquared = vx * vx + vy * vy || 1;
+    const amount = clamp(((x - from.x) * vx + (y - from.y) * vy) / lengthSquared);
+    const point = { x: from.x + vx * amount, y: from.y + vy * amount };
+    const distance = Math.hypot(x - point.x, y - point.y);
+    return !best || distance < best.distance ? { ...point, distance } : best;
+  }, null) || { x: clamp(x), y: clamp(y), distance: 0 };
+}
+
 export function findPath(sceneId, startId, endId) {
   const graph = graphFor(sceneId);
   if (!graph.nodes[startId] || !graph.nodes[endId]) return [];
@@ -118,13 +134,16 @@ export function hydrateWorldState(savedWorld, npcList, sceneId = "piazza") {
     const scene = migrateDistributedCast ? fallback.sceneId : (sceneGraphs[current.sceneId] ? current.sceneId : fallback.sceneId);
     const x = clamp(current.x ?? fallback.x);
     const y = clamp(current.y ?? fallback.y);
+    const grounded = projectToTerrain(scene, x, y);
+    const destination = current.destination ? projectToTerrain(scene, current.destination.x, current.destination.y) : grounded;
     return [npc.id, {
       ...fallback,
       ...current,
       sceneId: scene,
-      x,
-      y,
-      route: Array.isArray(current.route) ? current.route.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)) : []
+      x: grounded.x,
+      y: grounded.y,
+      destination: { ...destination, nodeId: current.destination?.nodeId },
+      route: Array.isArray(current.route) ? current.route.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)).map((point) => ({ ...point, ...projectToTerrain(scene, point.x, point.y) })) : []
     }];
   }));
   return next;
@@ -138,9 +157,10 @@ export function setAgentDestination(world, agentId, anchorName, sceneId = world.
   const node = graph.nodes[nodeId] || Object.values(graph.nodes)[0];
   const start = nearestNode(sceneId, agent.x, agent.y);
   agent.sceneId = sceneId;
+  const groundedDestination = projectToTerrain(sceneId, clamp(node.x + offset[0], 0.04, 0.96), clamp(node.y + offset[1], 0.2, 0.92));
   agent.destination = {
-    x: clamp(node.x + offset[0], 0.04, 0.96),
-    y: clamp(node.y + offset[1], 0.2, 0.92),
+    x: groundedDestination.x,
+    y: groundedDestination.y,
     nodeId
   };
   agent.route = findPath(sceneId, start, nodeId);

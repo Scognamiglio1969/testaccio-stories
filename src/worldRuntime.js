@@ -135,6 +135,7 @@ export class WorldRuntime {
     const characterPromises = Object.entries(characterAssets).map(([id, source]) => this.loadImage(`character:${id}`, source));
     await Promise.allSettled([backgroundPromise, ...characterPromises]);
     if (this.destroyed) return;
+    this.refreshAmbientFactionPresence();
     this.nextRoutineAt = performance.now() + 900;
     this.onReady?.();
     this.frameHandle = requestAnimationFrame((time) => this.frame(time));
@@ -275,7 +276,6 @@ export class WorldRuntime {
   update(delta, time) {
     this.world.clock = Number(this.world.clock || 0) + delta;
     this.visibleAgents().forEach((agent) => this.updateAgent(agent, delta));
-    this.separateAgents();
     this.constrainAgentsToTerrain();
     this.effects = this.effects.filter((effect) => time - effect.startedAt < effect.duration);
     if (!this.busy && this.mode === "game" && time >= this.nextRoutineAt) {
@@ -412,19 +412,22 @@ export class WorldRuntime {
   refreshAmbientFactionPresence() {
     const sceneId = this.scene.id;
     const existing = this.world.factionPresence || [];
-    const crisisPresence = existing.filter((presence) => presence.kind !== "ambient");
-    const otherAmbient = existing.filter((presence) => presence.kind === "ambient" && presence.sceneId !== sceneId);
+    const otherScenes = existing.filter((presence) => presence.sceneId !== sceneId);
+    const crisisPresence = existing.find((presence) => presence.sceneId === sceneId && presence.kind !== "ambient" && presence.stance !== "retreating");
+    if (crisisPresence) {
+      this.world.factionPresence = [...otherScenes, crisisPresence].slice(-8);
+      return;
+    }
     const cooldowns = new Set((this.world.props || [])
       .filter((prop) => prop.type === "faction-cooldown" && prop.expiresCycle > this.routineCycle)
       .map((prop) => prop.factionId));
     const candidates = [...this.state.factions]
       .filter((faction) => !cooldowns.has(faction.id))
       .sort((left, right) => right.pressure - left.pressure || left.relation - right.relation);
-    const count = candidates[0]?.pressure > 42 || this.routineCycle % 3 === 0 ? 2 : 1;
     const start = this.routineCycle % Math.max(1, candidates.length);
-    const visitors = Array.from({ length: count }, (_, slot) => candidates[(start + slot) % candidates.length])
+    const visitors = [candidates[start]]
       .filter(Boolean)
-      .map((faction, slot) => ({
+      .map((faction) => ({
         id: `ambient-${sceneId}-${faction.id}`,
         kind: "ambient",
         factionId: faction.id,
@@ -434,13 +437,13 @@ export class WorldRuntime {
         pressure: faction.pressure,
         stance: faction.relation >= 20 ? "open" : faction.relation > -20 ? "watching" : "hostile",
         members: faction.pressure >= 55 ? 3 : 2,
-        anchor: slot ? "exit" : "talk",
-        slot,
-        responsePending: slot === 0,
+        anchor: "talk",
+        slot: 0,
+        responsePending: true,
         message: factionMessage(faction.id, this.state.language),
         visualX: 1.04
       }));
-    this.world.factionPresence = [...crisisPresence, ...otherAmbient, ...visitors].slice(-8);
+    this.world.factionPresence = [...otherScenes, ...visitors].slice(-8);
   }
 
   snapshot(time = performance.now()) {

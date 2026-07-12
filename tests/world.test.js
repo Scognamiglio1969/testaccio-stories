@@ -8,6 +8,7 @@ import {
   findPath,
   hydrateWorldState,
   moveWorldToScene,
+  projectToTerrain,
   prepareWorldCrisis,
   resolveWorldCrisis,
   validateWorldState
@@ -39,6 +40,8 @@ assert.match(characterAssets.ruggero, /marta-cargo-alpha\.png$/);
 assert.match(characterAssets.ilaria, /miranda-cargo-alpha\.png$/);
 assert.ok(sceneTransitionContract.exitBudgetMs + sceneTransitionContract.preloadGraceMs + sceneTransitionContract.crossfadeMs <= sceneTransitionContract.maxInputLockMs);
 assert.deepEqual(sceneTransitionContract.accepts, ["scene-object", "destination-name"]);
+const grounded = projectToTerrain("ponte", 0.48, 0.2);
+assert.ok(Number.isFinite(grounded.x) && Number.isFinite(grounded.y));
 
 const moved = moveWorldToScene(world, "ponte", "marta", npcs);
 const onBridge = Object.values(moved.agents).filter((agent) => agent.sceneId === "ponte");
