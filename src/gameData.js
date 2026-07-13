@@ -373,7 +373,7 @@ export const npcs = [
     fear: 32,
     courage: 40,
     morality: 58,
-    relation: { nando: 12, leila: 8, ruggero: 15, ilaria: 18 },
+    relation: { nando: 12, leila: 8, ruggero: 15, ilaria: 18, nina: 10 },
     memory: []
   },
   {
@@ -397,7 +397,7 @@ export const npcs = [
     fear: 44,
     courage: 68,
     morality: 42,
-    relation: { marta: 12, leila: -6, ruggero: 6, ilaria: 10 },
+    relation: { marta: 12, leila: -6, ruggero: 6, ilaria: 10, nina: 4 },
     memory: []
   },
   {
@@ -421,7 +421,7 @@ export const npcs = [
     fear: 38,
     courage: 54,
     morality: 64,
-    relation: { marta: 8, nando: -6, ruggero: 4, ilaria: 8 },
+    relation: { marta: 8, nando: -6, ruggero: 4, ilaria: 8, nina: 14 },
     memory: []
   },
   {
@@ -445,7 +445,7 @@ export const npcs = [
     fear: 50,
     courage: 28,
     morality: 48,
-    relation: { marta: 15, nando: 6, leila: 4, ilaria: 2 },
+    relation: { marta: 15, nando: 6, leila: 4, ilaria: 2, nina: 8 },
     memory: []
   },
   {
@@ -469,7 +469,31 @@ export const npcs = [
     fear: 30,
     courage: 46,
     morality: 72,
-    relation: { marta: 18, nando: 10, leila: 8, ruggero: 2 },
+    relation: { marta: 18, nando: 10, leila: 8, ruggero: 2, nina: 6 },
+    memory: []
+  },
+  {
+    id: "nina",
+    name: "Nina",
+    role: { it: "Teen fotografa, osservazione e prove", en: "Teen photographer, observation and evidence" },
+    x: 54,
+    y: 56,
+    color: "#b86b52",
+    trait: "lucida",
+    aptitudes: { talk: 4, recruit: 2, trade: 2, secret: 5 },
+    specialties: [{ it: "fotografia", en: "photography" }, { it: "prove", en: "evidence" }],
+    routine: { it: "Fotografa serrande, targhe e volti; poi confronta gli scatti dal terrazzo del Palazzo.", en: "Photographs shutters, plates, and faces, then compares the shots from the Palazzo rooftop." },
+    secret: { it: "In uno scatto del Mattatoio compare una persona che tutti credono scomparsa.", en: "One Slaughterhouse photo shows someone everyone believes vanished." },
+    evolution: { it: "Puo diventare gli occhi del rione o usare una prova per decidere chi merita di essere salvato.", en: "Can become the district's eyes or use evidence to decide who deserves saving." },
+    leverage: {
+      talk: { centro: [2, -1], trastevere: [1, -1] },
+      secret: { romanord: [3, -2], trullo: [2, 0] }
+    },
+    trust: 48,
+    fear: 36,
+    courage: 52,
+    morality: 60,
+    relation: { marta: 10, nando: 4, leila: 14, ruggero: 8, ilaria: 6 },
     memory: []
   }
 ];

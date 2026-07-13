@@ -32,7 +32,8 @@ assert.ok(openingForecast.potency > 0);
 assert.ok(openingForecast.effects.every((effect) => ["from", "to", "delta"].every((key) => key in effect)));
 assert.ok(openingForecast.social.it && openingForecast.physical.en && openingForecast.witness.name);
 state = npcAction(state, "talk");
-assert.equal(state.npcs.length, 5);
+assert.equal(state.npcs.length, 6);
+assert.ok(state.npcs.some((npc) => npc.id === "nina" && npc.name === "Nina"));
 assert.ok(state.gossip.length >= 1);
 assert.ok(state.resources.intel > 24);
 assert.ok(state.world);
@@ -134,7 +135,7 @@ delete legacy.world;
 delete legacy.turn;
 localStorage.setItem("mdq-save", JSON.stringify(legacy));
 const migrated = loadGame();
-assert.equal(Object.keys(migrated.world.agents).length, 5);
+assert.equal(Object.keys(migrated.world.agents).length, 6);
 assert.deepEqual(migrated.turn, { max: 4, spent: 0, usedByNpc: {}, sceneProgress: {}, lastResult: null });
 
 console.log("Game systems smoke test passed.");

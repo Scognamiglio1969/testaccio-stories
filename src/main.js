@@ -451,7 +451,7 @@ function renderIntro() {
     {
       eyebrow: "La storia",
       title: "Testaccio ha otto notti per non spezzarsi.",
-      body: "I quartieri vicini avanzano con offerte, pressioni e bande. Nel rione fame, paura e vecchi segreti dividono le persone. Teo, Edo, Jack, Marta e Miranda sono gli unici che possono tenere insieme la comunità.",
+      body: "I quartieri vicini avanzano con offerte, pressioni e bande. Nel rione fame, paura e vecchi segreti dividono le persone. Teo, Edo, Jack, Marta, Miranda e Nina sono gli unici che possono tenere insieme la comunità.",
       points: ["Ogni personaggio vive in una zona diversa.", "Le relazioni tra quartieri cambiano dopo ogni scelta.", "Le persone ricordano promesse, tradimenti e assenze."]
     },
     {

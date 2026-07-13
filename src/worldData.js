@@ -26,7 +26,8 @@ export const characterAssets = {
   nando: "./assets/characters/edo-v2-alpha.png",
   leila: "./assets/characters/jack-v2-alpha.png",
   ruggero: "./assets/characters/marta-cargo-alpha.png",
-  ilaria: "./assets/characters/miranda-cargo-alpha.png"
+  ilaria: "./assets/characters/miranda-cargo-alpha.png",
+  nina: "./assets/characters/nina-alpha.png"
 };
 
 export const characterProfiles = {
@@ -34,7 +35,8 @@ export const characterProfiles = {
   nando: { footCrop: 0 },
   leila: { footCrop: 0 },
   ruggero: { footCrop: 0 },
-  ilaria: { footCrop: 0 }
+  ilaria: { footCrop: 0 },
+  nina: { footCrop: 0 }
 };
 
 export const factionVisuals = {
@@ -189,7 +191,8 @@ export const npcRoutineAnchor = {
   nando: "defend",
   leila: "scout",
   ruggero: "gather",
-  ilaria: "care"
+  ilaria: "care",
+  nina: "scout"
 };
 
 export const activityLabels = {

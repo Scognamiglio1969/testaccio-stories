@@ -15,7 +15,7 @@ import {
 } from "../src/worldState.js";
 
 const world = createWorldState(npcs, "piazza");
-assert.equal(Object.keys(world.agents).length, 5);
+assert.equal(Object.keys(world.agents).length, 6);
 assert.ok(validateWorldState(world, npcs));
 
 Object.entries(sceneGraphs).forEach(([sceneId, graph]) => {
@@ -34,10 +34,11 @@ Object.entries(sceneGraphs).forEach(([sceneId, graph]) => {
   assert.ok(profile.ambience);
 });
 assert.equal(new Set(Object.values(sceneProfiles).map((profile) => profile.ambience)).size, 10);
-assert.equal(Object.keys(characterProfiles).length, 5);
+assert.equal(Object.keys(characterProfiles).length, 6);
 assert.ok(Object.values(characterProfiles).every((profile) => profile.footCrop >= 0));
 assert.match(characterAssets.ruggero, /marta-cargo-alpha\.png$/);
 assert.match(characterAssets.ilaria, /miranda-cargo-alpha\.png$/);
+assert.match(characterAssets.nina, /nina-alpha\.png$/);
 assert.ok(sceneTransitionContract.exitBudgetMs + sceneTransitionContract.preloadGraceMs + sceneTransitionContract.crossfadeMs <= sceneTransitionContract.maxInputLockMs);
 assert.deepEqual(sceneTransitionContract.accepts, ["scene-object", "destination-name"]);
 const grounded = projectToTerrain("ponte", 0.48, 0.2);
@@ -45,7 +46,7 @@ assert.ok(Number.isFinite(grounded.x) && Number.isFinite(grounded.y));
 
 const moved = moveWorldToScene(world, "ponte", "marta", npcs);
 const onBridge = Object.values(moved.agents).filter((agent) => agent.sceneId === "ponte");
-assert.equal(new Set(Object.values(world.agents).map((agent) => agent.sceneId)).size, 5);
+assert.equal(new Set(Object.values(world.agents).map((agent) => agent.sceneId)).size, 6);
 assert.equal(onBridge.length, 2);
 assert.equal(Object.values(moved.agents).filter((agent) => agent.sceneId === "piazza").length, 0);
 

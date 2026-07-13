@@ -2,7 +2,7 @@
 
 Laptop-first social horror game set in a contemporary Roman district inspired by Testaccio.
 
-The current release is a playable dynamic-world slice: ten cinematic locations, five persistent teenage NPCs, independent movement, social groups, visible rival crews, animated actions, tactical crises, crafting props, memory, gossip, scoring, three endings, badges, local saves, and a backend-ready state model.
+The current release is a playable dynamic-world slice: ten cinematic locations, six persistent teenage NPCs, independent movement, social groups, visible rival crews, animated actions, tactical crises, crafting props, memory, gossip, scoring, three endings, badges, local saves, and a backend-ready state model.
 
 ## Run
 
@@ -22,7 +22,7 @@ The suite checks the original gameplay loop plus all ten navigation graphs, grou
 
 ## Dynamic World
 
-- Full-body isometric figures for Teo, Edo, Jack, Marta, and Miranda.
+- Full-body isometric figures for Teo, Edo, Jack, Marta, Miranda, and Nina.
 - A dependency-free Canvas 2D world stage rendered inside the existing DOM interface.
 - Authored waypoint graphs for all ten Testaccio locations.
 - Perspective scaling, y-depth sorting, shadows, route visualization, separation, and hover inspection.
@@ -45,6 +45,6 @@ The app is static and can be deployed for free on:
 
 ## Scope
 
-- Real: laptop-first UI, dynamic world, five stateful NPCs, groups, factions, actions, crises, crafting, local saves, local leaderboard, and IT/EN.
+- Real: laptop-first UI, dynamic world, six stateful NPCs, groups, factions, actions, crises, crafting, local saves, local leaderboard, and IT/EN.
 - Not simulated: real-time network multiplayer and a hosted leaderboard.
 - Backend-ready: the complete world state is serializable and can later be synchronized through Supabase or Firebase.

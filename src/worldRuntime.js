@@ -38,6 +38,12 @@ function npcReaction(npc, action, language = "it") {
       recruit: ["Miranda fa sentire la squadra più grande di quanto sia.", "Miranda makes the team feel bigger than it is."],
       trade: ["Miranda trova il prezzo nascosto dietro quello scritto.", "Miranda finds the hidden price behind the written one."],
       secret: ["Miranda collega il segno a una storia che nessuno voleva riaprire.", "Miranda links the mark to a story nobody wanted reopened."]
+    },
+    nina: {
+      talk: ["Nina mostra uno scatto e lascia che siano gli altri a riconoscere la bugia.", "Nina shows a photograph and lets the others recognize the lie."],
+      recruit: ["Nina segna sul telefono ogni accesso libero e ogni volto disponibile.", "Nina marks every open route and available face on her phone."],
+      trade: ["Nina fotografa merce e mani: lo scambio ora lascia una prova.", "Nina photographs goods and hands: the deal now leaves evidence."],
+      secret: ["Nina ingrandisce un riflesso nello scatto: qualcuno era gia li.", "Nina enlarges a reflection in the shot: someone was already there."]
     }
   };
   return lines[npc?.id]?.[action]?.[language === "it" ? 0 : 1] || "";

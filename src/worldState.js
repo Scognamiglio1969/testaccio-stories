@@ -70,7 +70,7 @@ function spawnNodeIds(sceneId) {
   return available.length >= 5 ? available : Object.keys(graph.nodes);
 }
 
-const initialNpcScenes = ["piazza", "vicoli", "ponte", "lupa", "monte"];
+const initialNpcScenes = ["piazza", "vicoli", "ponte", "lupa", "monte", "piazzatestaccio"];
 
 function newAgent(npc, index, sceneId) {
   const graph = graphFor(sceneId);
