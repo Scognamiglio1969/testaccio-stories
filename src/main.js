@@ -489,23 +489,40 @@ function renderIntro() {
 
 function renderGame() {
   const npc = state.npcs.find((item) => item.id === state.activeNpc);
+  const objective = safeSceneObjective();
+  const turn = turnState();
+  const target = Math.max(1, Number(objective.target ?? objective.max ?? 100));
+  const progress = Math.max(0, Math.min(target, Number(objective.progress ?? turn.progress)));
   return `
-    <section class="game-screen">
+    <section class="game-screen cinematic-game">
       ${renderStatusRibbon()}
-      ${renderNarrator(true)}
       <div class="command-layout">
         <section class="map-stage" aria-label="${t("map")}">
           <div class="world-mount" data-world-mount></div>
           <div class="world-loading" data-world-loading><i></i><span>${state.language === "it" ? "Il rione si sveglia" : "The district wakes"}</span></div>
           <div class="map-skyline"></div>
+          <header class="scene-director">
+            <span><small>${getScene(state).name[state.language]} · ${state.language === "it" ? "incidente" : "incident"}</small><strong>${localized(objective.title ?? objective.incident, nextThreat())}</strong></span>
+            <p>${localized(getScene(state).front, missionText())}</p>
+            <div class="director-progress" aria-label="${progress} su ${target}"><i style="--value:${progress / target * 100}%"></i><b>${progress}/${target}</b></div>
+          </header>
           <div class="scene-switcher">${renderSceneButtons()}</div>
           ${renderWorldInspector()}
           ${renderWorldBeat()}
+          <div class="scene-prompt"><span>${state.language === "it" ? "PROSSIMA MOSSA" : "NEXT MOVE"}</span><b>${nextMoveCopy(npc, objective)}</b></div>
         </section>
         ${renderCommandRail(npc)}
       </div>
     </section>
   `;
+}
+
+function nextMoveCopy(npc, objective) {
+  const encounter = (state.world?.factionPresence || []).find((presence) => presence.sceneId === state.sceneId && presence.stance !== "retreating" && presence.responsePending);
+  if (encounter) return state.language === "it" ? `${encounter.name} aspetta una risposta di ${npc.name}.` : `${encounter.name} is waiting for ${npc.name}'s answer.`;
+  const meta = actionMeta(objective.favoredAction || "talk");
+  const action = state.language === "it" ? meta.it : meta.en;
+  return state.language === "it" ? `Scegli ${npc.name}, poi usa ${action}.` : `Choose ${npc.name}, then use ${action}.`;
 }
 
 function renderWorldBeat() {
@@ -524,7 +541,7 @@ function renderStatusRibbon() {
   return `
     <section class="status-ribbon" aria-label="Stato della notte">
       <div class="night-marker"><small>Campagna</small><strong>NOTTE ${state.day} DI 8</strong></div>
-      <div class="campaign-goal"><small>Obiettivo finale</small><b>${state.language === "it" ? "Il rione deve arrivare unito all'alba dell'ottava notte" : "The district must reach the eighth dawn united"}</b></div>
+      <div class="campaign-goal"><small>Obiettivo</small><b>${state.language === "it" ? "Salva Testaccio fino all'alba 8" : "Save Testaccio until dawn 8"}</b></div>
       <div class="action-ticks" aria-label="${turn.remaining} azioni rimaste"><small>Mosse</small><span>${Array.from({ length: turn.max }, (_, index) => `<i class="${index < turn.spent ? "spent" : ""}"></i>`).join("")}</span><b>${turn.remaining}</b></div>
       <div class="critical-resource ${critical[1] < 28 ? "danger-zone" : ""}"><small>Risorsa più fragile</small><b>${resourceName(critical[0])} ${critical[1]}</b></div>
     </section>
@@ -565,19 +582,15 @@ function renderCommandContent(npc) {
   const encounter = (state.world?.factionPresence || []).find((presence) => presence.sceneId === state.sceneId && presence.stance !== "retreating");
   const encounterAction = encounter?.message || "Il gruppo aspetta una risposta.";
   return `
-    <section class="incident-block">
-      <span>Missione della zona</span><h2>${title}</h2>
-      <p class="story-stakes">${localized(scene.front, stakes)}</p>
-      <div class="win-condition"><small>Per riuscirci</small><strong>Ottieni ancora ${remaining} punti in ${turn.remaining} mosse</strong></div>
-      <div class="incident-progress"><i style="--value:${progress / target * 100}%"></i><b>${progress}/${target}</b></div>
-      <div class="next-command"><span>Prossima mossa</span><b>Seleziona ${npc.name} e usa “${favoredName}”</b></div>
+    <section class="turn-brief">
+      <span>OBIETTIVO DI ZONA</span><b>${title}</b><small>${remaining} punti mancanti · ${turn.remaining} mosse</small>
     </section>
-    ${encounter ? `<section class="district-encounter"><small>Messaggio da ${encounter.name}</small><b>${encounter.stance === "hostile" ? "Si avvicinano con tensione" : "Chiedono di parlare"}</b><p>${encounterAction}</p>${encounter.responsePending ? `<div class="encounter-responses"><button data-rival-response="negotiate" data-faction-id="${encounter.factionId}">Negozia</button><button data-rival-response="stand" data-faction-id="${encounter.factionId}">Tieni il punto</button><button data-rival-response="refuse" data-faction-id="${encounter.factionId}">Rifiuta</button></div>` : `<em>Risposta data</em>`}</section>` : ""}
+    ${encounter ? `<section class="district-encounter active-encounter"><small>${encounter.name} · MESSAGGIO IN ARRIVO</small><b>${encounter.stance === "hostile" ? "Il gruppo chiude la strada" : "Il gruppo chiede un confronto"}</b><p>“${encounterAction}”</p>${encounter.responsePending ? `<span class="response-question">Come risponde ${npc.name}?</span><div class="encounter-responses"><button data-rival-response="negotiate" data-faction-id="${encounter.factionId}"><b>Negozia</b><small>fiducia, rischio basso</small></button><button data-rival-response="stand" data-faction-id="${encounter.factionId}"><b>Tieni il punto</b><small>coraggio, rischio medio</small></button><button data-rival-response="refuse" data-faction-id="${encounter.factionId}"><b>Rifiuta</b><small>difesa, rischio alto</small></button></div>` : `<em>Risposta data</em>`}</section>` : ""}
     <section class="selected-character" style="--npc-color:${npc.color}">
       <div class="selected-character-copy">
         <small>Personaggio selezionato</small>
         <h2>${npc.name}</h2>
-        <p>${npc.trait}</p>
+        <p>${npc.trait}</p><small class="character-order">${encounter ? "Deve rispondere al gruppo" : `Azione consigliata: ${favoredName}`}</small>
         <dl>
           <div><dt>Fiducia</dt><dd>${npc.trust}</dd></div>
           <div><dt>Coraggio</dt><dd>${npc.courage}</dd></div>

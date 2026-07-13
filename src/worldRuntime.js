@@ -861,7 +861,7 @@ export class WorldRuntime {
 
     context.save();
     context.translate(metrics.x, metrics.y);
-    const focusScale = hovered ? 1.85 : selected ? 1.05 : 1;
+    const focusScale = hovered ? 1.45 : selected ? 1.06 : 1;
     const walkWave = agent.moving ? Math.sin(phase) * stride : 0;
     context.scale((agent.direction < 0 ? -1 : 1) * focusScale * (1 + Math.abs(walkWave) * 0.025), focusScale * (1 - Math.abs(walkWave) * 0.018));
     context.transform(1, 0, walkWave * 0.035, 1, walkWave * 1.8, 0);
