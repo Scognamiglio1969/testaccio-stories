@@ -23,7 +23,8 @@ import {
   saveGame,
   selectNpc,
   startSimpleAction,
-  finishSimpleAction
+  finishSimpleAction,
+  previewSimpleAction
 } from "./engine.js";
 
 const app = document.querySelector("#app");
@@ -555,11 +556,29 @@ function renderSimpleActions(npc, pending) {
     field: state.language === "it" ? "Operativa" : "Field"
   };
   const actions = simpleActions.filter((item) => item.category === actionCategory);
+  const previews = actions.map((action) => previewSimpleAction(state, action.id));
+  const recommended = previews.find((preview) => preview.polarity === "positive") || previews.find((preview) => preview.polarity === "neutral") || previews[0];
   return `
     <section class="simple-actions ${pending ? "waiting" : ""}" aria-label="20 azioni di ${npc.name}">
       <div class="action-categories">${Object.entries(categories).map(([id, name]) => `<button class="${id === actionCategory ? "active" : ""}" data-action-category="${id}" ${pending ? "disabled" : ""}>${name}</button>`).join("")}</div>
-      <div class="action-five">${actions.map((action, index) => `<button data-simple-action="${action.id}" ${pending ? "disabled" : ""}><small>${String(index + 1).padStart(2, "0")}</small><b>${action.label[state.language]}</b><span>${action.risk ? (state.language === "it" ? "rischio" : "risk") : ""}</span></button>`).join("")}</div>
+      <div class="action-explanation" data-action-explanation>${renderActionExplanation(recommended)}</div>
+      <div class="action-five">${actions.map((action, index) => {
+        const preview = previews[index];
+        const sign = preview.delta > 0 ? "+1" : preview.delta < 0 ? "-1" : "0";
+        return `<button class="predicted-${preview.polarity}" data-simple-action="${action.id}" data-action-preview="${action.id}" ${pending ? "disabled" : ""}><small>${String(index + 1).padStart(2, "0")}</small><b>${action.label[state.language]}</b><em>${action.outcome.positive[state.language]}</em><strong>${sign}</strong></button>`;
+      }).join("")}</div>
     </section>`;
+}
+
+function renderActionExplanation(preview) {
+  if (!preview) return "";
+  const action = preview.action;
+  const sign = preview.delta > 0 ? "+1" : preview.delta < 0 ? "-1" : "0";
+  const status = state.language === "it"
+    ? { positive: "POSITIVO", neutral: "NEUTRO", negative: "NEGATIVO" }[preview.polarity]
+    : { positive: "POSITIVE", neutral: "NEUTRAL", negative: "NEGATIVE" }[preview.polarity];
+  const goal = action.outcome.positive[state.language];
+  return `<span class="preview-sign ${preview.polarity}">${sign}</span><p><b>${action.label[state.language]}: ${goal}.</b><small>${preview.reason[state.language]} ${state.language === "it" ? "Esito previsto" : "Expected result"}: ${status}.</small></p>`;
 }
 
 function renderSimpleInfo(scene, faction) {
@@ -1260,6 +1279,15 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-simple-action]").forEach((button) => {
     button.addEventListener("click", () => runSimpleCommand(button.dataset.simpleAction));
+  });
+  document.querySelectorAll("[data-action-preview]").forEach((button) => {
+    const showPreview = () => {
+      const target = document.querySelector("[data-action-explanation]");
+      const preview = previewSimpleAction(state, button.dataset.actionPreview);
+      if (target && preview) target.innerHTML = renderActionExplanation(preview);
+    };
+    button.addEventListener("pointerenter", showPreview);
+    button.addEventListener("focus", showPreview);
   });
   document.querySelectorAll("[data-action-category]").forEach((button) => {
     button.addEventListener("click", () => {

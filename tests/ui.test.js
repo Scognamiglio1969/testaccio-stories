@@ -10,6 +10,9 @@ assert.match(main, /class="simple-game/);
 assert.match(main, /class="hero-character"/);
 assert.match(main, /characterAssets\[npc\.id\]/);
 assert.match(main, /data-simple-action/);
+assert.match(main, /data-action-preview/);
+assert.match(main, /renderActionExplanation/);
+assert.match(main, /previewSimpleAction/);
 assert.match(main, /data-action-category/);
 assert.match(main, /data-simple-clock/);
 assert.match(main, /finishSimpleAction/);
@@ -31,6 +34,8 @@ assert.match(runtime, /imageSmoothingQuality = "high"/);
 assert.match(styles, /\.simple-layout/);
 assert.match(styles, /\.hero-character > img/);
 assert.match(styles, /\.action-five/);
+assert.match(styles, /\.action-explanation/);
+assert.match(styles, /\.predicted-positive/);
 assert.match(styles, /\.simple-result\.positive/);
 assert.match(styles, /\.simple-result\.negative/);
 

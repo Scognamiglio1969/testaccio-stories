@@ -12,7 +12,8 @@ import {
   resolveCrisis,
   startSimpleAction,
   finishSimpleAction,
-  SIMPLE_ACTION_DURATION
+  SIMPLE_ACTION_DURATION,
+  previewSimpleAction
 } from "../src/engine.js";
 import { simpleActions } from "../src/gameData.js";
 
@@ -143,15 +144,21 @@ assert.equal(Object.keys(migrated.world.agents).length, 6);
 assert.deepEqual(migrated.turn, { max: 4, spent: 0, usedByNpc: {}, sceneProgress: {}, lastResult: null });
 
 assert.equal(simpleActions.length, 20);
+const previews = simpleActions.map((action) => previewSimpleAction(createGame("it", "Preview"), action.id));
+assert.ok(previews.every((preview) => preview && [-1, 0, 1].includes(preview.delta)));
+assert.ok(previews.every((preview) => preview.reason.it && preview.reason.en));
 const simpleStart = 1000;
 let focus = createGame("it", "Focus");
 focus.phase = "game";
+const expectedFocusResult = previewSimpleAction(focus, "listen");
 focus = startSimpleAction(focus, "listen", simpleStart);
 assert.equal(focus.pendingSimpleAction.endsAt, simpleStart + SIMPLE_ACTION_DURATION);
 assert.equal(finishSimpleAction(focus, simpleStart + 1000), focus);
 focus = finishSimpleAction(focus, simpleStart + SIMPLE_ACTION_DURATION);
 assert.equal(focus.pendingSimpleAction, null);
 assert.ok(["negative", "neutral", "positive"].includes(focus.lastSimpleResult.polarity));
+assert.equal(focus.lastSimpleResult.polarity, expectedFocusResult.polarity);
+assert.equal(focus.lastSimpleResult.delta, expectedFocusResult.delta);
 assert.equal(focus.activeNpc, "nando");
 assert.equal(Object.keys(focus.lastSimpleResult.text).length, 2);
 

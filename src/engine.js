@@ -167,6 +167,28 @@ function hydrateSave(saved) {
 
 export const SIMPLE_ACTION_DURATION = 120000;
 
+export function previewSimpleAction(state, actionId, npcId = state.activeNpc, sceneId = state.sceneId) {
+  const action = simpleActions.find((item) => item.id === actionId);
+  const npc = state.npcs.find((item) => item.id === npcId);
+  const scene = scenes.find((item) => item.id === sceneId) || scenes[0];
+  if (!action || !npc) return null;
+  const aptitude = Number(npc.aptitudes?.[action.kind]) || 0;
+  const placeBonus = scene.favoredAction === action.kind ? 2 : 0;
+  const risk = Number(action.risk) || 0;
+  const variation = ((state.actionSequence + action.id.length + npc.id.length + scene.id.length) % 5) - 2;
+  const performance = aptitude + placeBonus + variation - risk;
+  const polarity = performance >= 6 ? "positive" : performance >= 3 ? "neutral" : "negative";
+  const delta = polarity === "positive" ? 1 : polarity === "negative" ? -1 : 0;
+  const reason = placeBonus
+    ? { it: `${scene.name.it} favorisce questa mossa.`, en: `${scene.name.en} favors this move.` }
+    : aptitude >= 4
+      ? { it: `${npc.name} e particolarmente adatto.`, en: `${npc.name} is especially suited.` }
+      : risk
+        ? { it: "Mossa rischiosa per questo personaggio.", en: "A risky move for this character." }
+        : { it: "Mossa possibile, ma senza vantaggi.", en: "Possible, but without an advantage." };
+  return { action, npc, scene, aptitude, placeBonus, risk, performance, polarity, delta, reason };
+}
+
 export function startSimpleAction(state, actionId, now = Date.now()) {
   if (state.pendingSimpleAction || state.gameLost) return state;
   const action = simpleActions.find((item) => item.id === actionId);
@@ -192,13 +214,8 @@ export function finishSimpleAction(state, now = Date.now()) {
   const npc = state.npcs.find((item) => item.id === pending.npcId);
   if (!action || !npc) return state;
   const next = copy(state);
-  const scene = scenes.find((item) => item.id === next.sceneId) || scenes[0];
-  const aptitude = Number(npc.aptitudes?.[action.kind]) || 0;
-  const placeBonus = scene.favoredAction === action.kind ? 2 : 0;
-  const variation = ((next.actionSequence + action.id.length + npc.id.length + scene.id.length) % 5) - 2;
-  const performance = aptitude + placeBonus + variation - (Number(action.risk) || 0);
-  const polarity = performance >= 6 ? "positive" : performance >= 3 ? "neutral" : "negative";
-  const delta = polarity === "positive" ? 1 : polarity === "negative" ? -1 : 0;
+  const preview = previewSimpleAction(next, action.id, npc.id, next.sceneId);
+  const { polarity, delta } = preview;
   next.pulseScore = Math.max(-3, Math.min(3, next.pulseScore + delta));
   next.gameLost = next.pulseScore <= -3;
   next.lastSimpleResult = {
