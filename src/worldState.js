@@ -27,7 +27,7 @@ export function projectToTerrain(sceneId, x, y) {
     const amount = clamp(((x - from.x) * vx + (y - from.y) * vy) / lengthSquared);
     const point = { x: from.x + vx * amount, y: from.y + vy * amount };
     const distance = Math.hypot(x - point.x, y - point.y);
-    return !best || distance < best.distance ? { ...point, distance } : best;
+    return !best || distance < best.distance ? { ...point, distance, fromId, toId } : best;
   }, null) || { x: clamp(x), y: clamp(y), distance: 0 };
 }
 
@@ -132,8 +132,8 @@ export function hydrateWorldState(savedWorld, npcList, sceneId = "piazza") {
     const fallback = newAgent(npc, index, initialNpcScenes[index % initialNpcScenes.length] || next.sceneId);
     const current = savedWorld.agents?.[npc.id] || {};
     const scene = migrateDistributedCast ? fallback.sceneId : (sceneGraphs[current.sceneId] ? current.sceneId : fallback.sceneId);
-    const x = clamp(current.x ?? fallback.x);
-    const y = clamp(current.y ?? fallback.y);
+    const x = clamp(migrateDistributedCast ? fallback.x : (current.x ?? fallback.x));
+    const y = clamp(migrateDistributedCast ? fallback.y : (current.y ?? fallback.y));
     const grounded = projectToTerrain(scene, x, y);
     const destination = current.destination ? projectToTerrain(scene, current.destination.x, current.destination.y) : grounded;
     return [npc.id, {
@@ -143,7 +143,7 @@ export function hydrateWorldState(savedWorld, npcList, sceneId = "piazza") {
       x: grounded.x,
       y: grounded.y,
       destination: { ...destination, nodeId: current.destination?.nodeId },
-      route: Array.isArray(current.route) ? current.route.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)).map((point) => ({ ...point, ...projectToTerrain(scene, point.x, point.y) })) : []
+      route: migrateDistributedCast ? [] : (Array.isArray(current.route) ? current.route.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)).map((point) => ({ ...point, ...projectToTerrain(scene, point.x, point.y) })) : [])
     }];
   }));
   return next;
@@ -155,22 +155,25 @@ export function setAgentDestination(world, agentId, anchorName, sceneId = world.
   if (!agent) return world;
   const nodeId = graph.anchors[anchorName] || anchorName;
   const node = graph.nodes[nodeId] || Object.values(graph.nodes)[0];
-  const start = nearestNode(sceneId, agent.x, agent.y);
+  const groundedStart = projectToTerrain(sceneId, agent.x, agent.y);
+  const start = [groundedStart.fromId, groundedStart.toId]
+    .filter(Boolean)
+    .sort((left, right) => Math.hypot(graph.nodes[left].x - groundedStart.x, graph.nodes[left].y - groundedStart.y) - Math.hypot(graph.nodes[right].x - groundedStart.x, graph.nodes[right].y - groundedStart.y))[0] || nearestNode(sceneId, agent.x, agent.y);
   agent.sceneId = sceneId;
   const groundedDestination = projectToTerrain(sceneId, clamp(node.x + offset[0], 0.04, 0.96), clamp(node.y + offset[1], 0.2, 0.92));
+  const destinationEndpoint = [groundedDestination.fromId, groundedDestination.toId]
+    .filter(Boolean)
+    .sort((left, right) => Math.hypot(graph.nodes[left].x - groundedDestination.x, graph.nodes[left].y - groundedDestination.y) - Math.hypot(graph.nodes[right].x - groundedDestination.x, graph.nodes[right].y - groundedDestination.y))[0] || nodeId;
   agent.destination = {
     x: groundedDestination.x,
     y: groundedDestination.y,
     nodeId
   };
-  agent.route = findPath(sceneId, start, nodeId);
-  if (agent.route.length) {
-    const last = agent.route.at(-1);
-    last.x = agent.destination.x;
-    last.y = agent.destination.y;
-  } else {
-    agent.route = [{ ...agent.destination, id: nodeId }];
-  }
+  const startNode = graph.nodes[start];
+  const approach = startNode && Math.hypot(startNode.x - groundedStart.x, startNode.y - groundedStart.y) > 0.004 ? [copy(startNode)] : [];
+  agent.route = [...approach, ...findPath(sceneId, start, destinationEndpoint)];
+  const last = agent.route.at(-1);
+  if (!last || Math.hypot(last.x - agent.destination.x, last.y - agent.destination.y) > 0.004) agent.route.push({ ...agent.destination, id: nodeId });
   return world;
 }
 

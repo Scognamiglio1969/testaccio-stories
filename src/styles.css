@@ -794,7 +794,7 @@ h3 {
   height: 100%;
   border-radius: 50%;
   background-image: url("../assets/npc-portraits.png");
-  background-size: 500% 100%;
+  background-size: 600% 100%;
   background-position: var(--portrait-x) center;
   box-shadow: inset 0 -10px 16px rgba(0, 0, 0, 0.3);
   transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
@@ -999,7 +999,7 @@ h3 {
   background:
     linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.28)),
     url("../assets/npc-portraits.png");
-  background-size: 500% 100%;
+  background-size: 600% 100%;
   background-position: var(--portrait-x) center;
   border: 1px solid rgba(255, 240, 211, 0.2);
   font-weight: 900;
@@ -1022,18 +1022,22 @@ h3 {
 }
 
 .nando {
-  --portrait-x: 25%;
+  --portrait-x: 20%;
 }
 
 .leila {
-  --portrait-x: 50%;
+  --portrait-x: 40%;
 }
 
 .ruggero {
-  --portrait-x: 75%;
+  --portrait-x: 60%;
 }
 
 .ilaria {
+  --portrait-x: 80%;
+}
+
+.nina {
   --portrait-x: 100%;
 }
 
@@ -1792,7 +1796,7 @@ h3 {
 }
 
 .hero-character::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 35%; background: linear-gradient(transparent, rgba(5,6,5,.94)); pointer-events: none; }
-.hero-character > img { position: absolute; z-index: 1; top: 70px; right: -8%; width: 116%; height: calc(100% - 88px); object-fit: contain; object-position: center bottom; filter: drop-shadow(0 18px 24px rgba(0,0,0,.55)); animation: heroBreathe 3.8s ease-in-out infinite; }
+.hero-character > img { position: absolute; z-index: 1; top: 70px; right: -8%; width: 116%; height: calc(100% - 88px); object-fit: contain; object-position: center bottom; filter: drop-shadow(0 18px 24px rgba(0,0,0,.55)); }
 .hero-character-name { position: relative; z-index: 3; padding: 24px 24px 0; }
 .hero-character-name small { color: var(--npc-color); font-size: .65rem; font-weight: 900; }
 .hero-character-name h2 { margin: 1px 0 0; color: #fff4e5; font-size: clamp(2rem, 3vw, 3.6rem); line-height: .9; }

@@ -356,6 +356,7 @@ export class WorldRuntime {
     if (!graph) return;
     const segments = graph.edges.map(([fromId, toId]) => [graph.nodes[fromId], graph.nodes[toId]]).filter(([from, to]) => from && to);
     this.visibleAgents().forEach((agent) => {
+      if (agent.moving || agent.route?.length) return;
       let best = null;
       segments.forEach(([from, to]) => {
         const vx = to.x - from.x;
@@ -367,8 +368,8 @@ export class WorldRuntime {
         const distance = Math.hypot(agent.x - x, agent.y - y);
         if (!best || distance < best.distance) best = { x, y, distance };
       });
-      // Feet stay on the authored walkable centerlines; tiny tolerance avoids jitter.
-      if (best && best.distance > 0.006) {
+      // Recovery is idle-only: snapping a moving agent every frame caused visible jitter.
+      if (best && best.distance > 0.02) {
         agent.x = best.x;
         agent.y = best.y;
       }
@@ -931,14 +932,13 @@ export class WorldRuntime {
     const stride = clamp((Number(agent.speed) || 0) / Math.max(0.04, Number(agent.pace) || 0.055));
     const footfall = agent.moving ? Math.abs(Math.sin(phase)) : 0;
     const bob = 0;
-    const sway = agent.moving ? Math.sin(phase) * 0.014 * stride : 0;
     const selected = agent.id === this.activeId;
     const hovered = agent.id === this.hoveredId;
 
     context.save();
     context.fillStyle = `rgba(0,0,0,${0.34 + footfall * 0.12})`;
     context.beginPath();
-    context.ellipse(metrics.x + Math.sin(phase) * 2.5 * stride, metrics.y + 4, metrics.width * 0.31 * (1 - footfall * 0.08), 6 + agent.y * 3, 0, 0, Math.PI * 2);
+    context.ellipse(metrics.x, metrics.y + 4, metrics.width * 0.31, 6 + agent.y * 3, 0, 0, Math.PI * 2);
     context.fill();
     context.filter = "none";
     if (selected) {
@@ -953,10 +953,7 @@ export class WorldRuntime {
     context.save();
     context.translate(metrics.x, metrics.y);
     const focusScale = hovered ? 1.45 : selected ? 1.06 : 1;
-    const walkWave = agent.moving ? Math.sin(phase) * stride : 0;
-    context.scale((agent.direction < 0 ? -1 : 1) * focusScale * (1 + Math.abs(walkWave) * 0.025), focusScale * (1 - Math.abs(walkWave) * 0.018));
-    context.transform(1, 0, walkWave * 0.035, 1, walkWave * 1.8, 0);
-    context.rotate(sway + walkWave * 0.012);
+    context.scale((agent.direction < 0 ? -1 : 1) * focusScale, focusScale);
     context.shadowColor = "rgba(238,221,174,0.5)";
     context.shadowBlur = 5;
     context.shadowOffsetX = agent.direction < 0 ? 2 : -2;
