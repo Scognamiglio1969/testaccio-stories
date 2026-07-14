@@ -23,6 +23,10 @@ assert.match(main, /data-simple-panel="place"/);
 assert.match(main, /factionAssets\[faction\.id\]/);
 assert.match(main, /data-simple-result/);
 assert.match(main, /gameLost/);
+assert.match(main, /weatherLabel/);
+assert.match(main, /sound\.syncAtmosphere/);
+assert.match(main, /sound\.weatherEvent/);
+assert.match(main, /sound\.result/);
 assert.doesNotMatch(main.slice(main.indexOf("function renderGame"), main.indexOf("function nextMoveCopy")), /resources|forecast|journal|mission/);
 
 assert.match(data, /export const simpleActions/);
@@ -31,6 +35,9 @@ assert.match(runtime, /factionAssets/);
 assert.match(runtime, /this\.mode === "game"/);
 assert.match(runtime, /`faction:\$\{presence\.factionId\}`/);
 assert.match(runtime, /imageSmoothingQuality = "high"/);
+assert.match(runtime, /drawWeather\(context, time\)/);
+assert.match(runtime, /canvas\.dataset\.weather/);
+assert.match(runtime, /lightningCycle/);
 assert.match(styles, /\.simple-layout/);
 assert.match(styles, /\.hero-character > img/);
 assert.match(styles, /\.action-five/);
@@ -38,5 +45,6 @@ assert.match(styles, /\.action-explanation/);
 assert.match(styles, /\.predicted-positive/);
 assert.match(styles, /\.simple-result\.positive/);
 assert.match(styles, /\.simple-result\.negative/);
+assert.match(styles, /\.weather-badge\.storm/);
 
 console.log("Focused desktop UI contract test passed.");

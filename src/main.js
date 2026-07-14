@@ -29,7 +29,7 @@ import {
 
 const app = document.querySelector("#app");
 let state = loadGame() || createGame();
-let audioEnabled = localStorage.getItem("ts-audio") === "on";
+let audioEnabled = localStorage.getItem("ts-audio") !== "off";
 let worldRuntime = null;
 let interactionBusy = false;
 let beatTimer = null;
@@ -49,10 +49,19 @@ app.addEventListener("click", (event) => {
   close.closest("[data-world-beat]")?.setAttribute("hidden", "");
 });
 
+app.addEventListener("pointerover", (event) => {
+  const button = event.target.closest("button");
+  if (!button || button.contains(event.relatedTarget)) return;
+  sound.hover();
+});
+
 const sound = {
   context: null,
   master: null,
   ambient: [],
+  weatherNodes: [],
+  weatherType: null,
+  thunderTimer: null,
   ensure() {
     if (!this.context) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -80,7 +89,7 @@ const sound = {
     osc.start(now);
     osc.stop(now + duration + 0.02);
   },
-  noise(duration = 0.22, gain = 0.035) {
+  noise(duration = 0.22, gain = 0.035, frequency = 900, filterType = "bandpass") {
     if (!audioEnabled || !this.ensure()) return;
     const now = this.context.currentTime;
     const buffer = this.context.createBuffer(1, this.context.sampleRate * duration, this.context.sampleRate);
@@ -89,14 +98,33 @@ const sound = {
     const source = this.context.createBufferSource();
     const filter = this.context.createBiquadFilter();
     const amp = this.context.createGain();
-    filter.type = "bandpass";
-    filter.frequency.value = 900;
+    filter.type = filterType;
+    filter.frequency.value = frequency;
     filter.Q.value = 0.7;
     amp.gain.setValueAtTime(gain, now);
     amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     source.buffer = buffer;
     source.connect(filter).connect(amp).connect(this.master);
     source.start(now);
+  },
+  loopingNoise(gain, frequency, filterType = "bandpass") {
+    if (!audioEnabled || !this.ensure()) return [];
+    const duration = 2;
+    const buffer = this.context.createBuffer(1, this.context.sampleRate * duration, this.context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let index = 0; index < data.length; index += 1) data[index] = Math.random() * 2 - 1;
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const amp = this.context.createGain();
+    source.buffer = buffer;
+    source.loop = true;
+    filter.type = filterType;
+    filter.frequency.value = frequency;
+    filter.Q.value = filterType === "bandpass" ? 0.55 : 0.3;
+    amp.gain.value = gain;
+    source.connect(filter).connect(amp).connect(this.master);
+    source.start();
+    return [source, filter, amp];
   },
   startAmbient() {
     if (!audioEnabled || !this.ensure() || this.ambient.length) return;
@@ -112,6 +140,7 @@ const sound = {
     });
   },
   stopAmbient() {
+    this.stopWeather();
     this.ambient.forEach((node) => {
       try {
         if (node.stop) node.stop();
@@ -120,8 +149,45 @@ const sound = {
     });
     this.ambient = [];
   },
-  ui() {
-    this.tone(540, 0.08, "triangle", 0.045, 1.25);
+  stopWeather() {
+    window.clearInterval(this.thunderTimer);
+    this.thunderTimer = null;
+    this.weatherNodes.forEach((node) => {
+      try {
+        if (node.stop) node.stop();
+        if (node.disconnect) node.disconnect();
+      } catch {}
+    });
+    this.weatherNodes = [];
+    this.weatherType = null;
+  },
+  syncAtmosphere(type = "rain") {
+    if (!audioEnabled || !this.ensure()) return;
+    this.startAmbient();
+    if (this.weatherType === type && this.weatherNodes.length) return;
+    this.stopWeather();
+    this.weatherType = type;
+    if (type === "rain") {
+      this.weatherNodes.push(...this.loopingNoise(0.032, 1750, "bandpass"));
+    } else if (type === "fog") {
+      this.weatherNodes.push(...this.loopingNoise(0.012, 460, "lowpass"));
+      const hum = this.context.createOscillator();
+      const amp = this.context.createGain();
+      hum.type = "sine";
+      hum.frequency.value = 69;
+      amp.gain.value = 0.009;
+      hum.connect(amp).connect(this.master);
+      hum.start();
+      this.weatherNodes.push(hum, amp);
+    } else if (type === "storm") {
+      this.weatherNodes.push(...this.loopingNoise(0.052, 1550, "bandpass"));
+      this.weatherNodes.push(...this.loopingNoise(0.038, 360, "lowpass"));
+      this.thunderTimer = window.setInterval(() => this.thunder(), 8500);
+    }
+  },
+  ui(kind = "click") {
+    const frequencies = { click: 540, tab: 460, panel: 620, close: 360 };
+    this.tone(frequencies[kind] || 540, 0.075, "triangle", 0.038, kind === "close" ? 0.72 : 1.22);
   },
   hover() {
     this.tone(720, 0.055, "sine", 0.024, 1.08);
@@ -135,6 +201,27 @@ const sound = {
     this.tone(tones[action] || 330, 0.16, action === "secret" ? "sawtooth" : "triangle", 0.06, action === "secret" ? 0.5 : 1.2);
     if (action === "secret") this.noise(0.18, 0.028);
   },
+  result(polarity) {
+    if (polarity === "positive") {
+      this.tone(440, 0.16, "triangle", 0.06, 1.5);
+      window.setTimeout(() => this.tone(660, 0.18, "triangle", 0.052, 1.18), 90);
+    } else if (polarity === "negative") {
+      this.tone(190, 0.28, "sawtooth", 0.065, 0.55);
+      this.noise(0.2, 0.025, 520, "lowpass");
+    } else {
+      this.tone(360, 0.14, "sine", 0.045, 1);
+    }
+  },
+  thunder() {
+    this.tone(58, 1.15, "sawtooth", 0.075, 0.48);
+    this.noise(1.05, 0.075, 190, "lowpass");
+  },
+  weatherEvent(type) {
+    this.syncAtmosphere(type);
+    if (type === "storm") this.thunder();
+    else if (type === "rain") this.noise(0.4, 0.028, 1800, "bandpass");
+    else this.tone(110, 0.7, "sine", 0.025, 0.72);
+  },
   crisis() {
     this.tone(92, 0.45, "sawtooth", 0.07, 0.72);
     this.noise(0.34, 0.045);
@@ -142,7 +229,7 @@ const sound = {
 };
 
 if (audioEnabled) {
-  window.addEventListener("pointerdown", () => sound.startAmbient(), { once: true });
+  window.addEventListener("pointerdown", () => sound.syncAtmosphere(state.weather?.type), { once: true });
 }
 
 function t(key) {
@@ -158,10 +245,14 @@ function activityLabel(value) {
 }
 
 function setState(next) {
+  const previousWeather = state.weather?.type;
+  const previousResult = state.lastSimpleResult?.at;
   worldRuntime?.destroy();
   worldRuntime = null;
   state = next;
   render();
+  if (state.weather?.type !== previousWeather) sound.weatherEvent(state.weather.type);
+  if (state.lastSimpleResult?.at && state.lastSimpleResult.at !== previousResult) sound.result(state.lastSimpleResult.polarity);
 }
 
 function resourceIcon(key) {
@@ -364,6 +455,7 @@ function render() {
   `;
   bindEvents();
   mountWorld();
+  if (audioEnabled && sound.context) sound.syncAtmosphere(state.weather?.type);
   startSimpleClock();
   scheduleFactionHighlightClear();
 }
@@ -507,7 +599,7 @@ function renderGame() {
           <div class="world-mount" data-world-mount></div>
           <div class="world-loading" data-world-loading><i></i><span>${state.language === "it" ? "Il rione si sveglia" : "The district wakes"}</span></div>
           <header class="simple-hud">
-            <div class="place-title"><small>${state.language === "it" ? "LUOGO" : "PLACE"}</small><strong>${scene.name[state.language]}</strong></div>
+            <div class="place-title"><small>${state.language === "it" ? "LUOGO" : "PLACE"}<em class="weather-badge ${state.weather?.type || "rain"}">${weatherLabel()}</em></small><strong>${scene.name[state.language]}</strong></div>
             ${renderPulseScore()}
             <div class="turn-clock ${pending ? "running" : ""}"><small>${pending ? (state.language === "it" ? "AZIONE IN CORSO" : "ACTION RUNNING") : (state.language === "it" ? "TOCCA A" : "TURN")}</small><strong data-simple-clock>${pending ? formatSimpleTime(pending.endsAt - Date.now()) : npc.name}</strong></div>
           </header>
@@ -530,6 +622,15 @@ function renderGame() {
 function activeSimpleFaction() {
   const presence = (state.world?.factionPresence || []).find((item) => item.sceneId === state.sceneId && item.stance !== "retreating");
   return state.factions.find((item) => item.id === presence?.factionId) || state.factions[state.actionSequence % state.factions.length];
+}
+
+function weatherLabel() {
+  const labels = {
+    rain: { it: "PIOGGIA", en: "RAIN" },
+    fog: { it: "NEBBIA", en: "FOG" },
+    storm: { it: "TEMPORALE", en: "STORM" }
+  };
+  return labels[state.weather?.type || "rain"][state.language];
 }
 
 function renderPulseScore() {
@@ -1291,12 +1392,14 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-action-category]").forEach((button) => {
     button.addEventListener("click", () => {
+      sound.ui("tab");
       actionCategory = button.dataset.actionCategory;
       render();
     });
   });
   document.querySelectorAll("[data-simple-panel]").forEach((button) => {
     button.addEventListener("click", () => {
+      sound.ui("panel");
       state.activePanel = button.dataset.simplePanel;
       saveGame(state);
       render();
@@ -1373,7 +1476,7 @@ function handleAction(action) {
     audioEnabled = !audioEnabled;
     localStorage.setItem("ts-audio", audioEnabled ? "on" : "off");
     if (audioEnabled) {
-      sound.startAmbient();
+      sound.syncAtmosphere(state.weather?.type);
       sound.scene();
     } else {
       sound.stopAmbient();

@@ -144,6 +144,7 @@ assert.equal(Object.keys(migrated.world.agents).length, 6);
 assert.deepEqual(migrated.turn, { max: 4, spent: 0, usedByNpc: {}, sceneProgress: {}, lastResult: null });
 
 assert.equal(simpleActions.length, 20);
+assert.equal(createGame("it", "Weather").weather.type, "rain");
 const previews = simpleActions.map((action) => previewSimpleAction(createGame("it", "Preview"), action.id));
 assert.ok(previews.every((preview) => preview && [-1, 0, 1].includes(preview.delta)));
 assert.ok(previews.every((preview) => preview.reason.it && preview.reason.en));
@@ -160,6 +161,7 @@ assert.ok(["negative", "neutral", "positive"].includes(focus.lastSimpleResult.po
 assert.equal(focus.lastSimpleResult.polarity, expectedFocusResult.polarity);
 assert.equal(focus.lastSimpleResult.delta, expectedFocusResult.delta);
 assert.equal(focus.activeNpc, "nando");
+assert.equal(focus.weather.type, "fog");
 assert.equal(Object.keys(focus.lastSimpleResult.text).length, 2);
 
 console.log("Game systems smoke test passed.");

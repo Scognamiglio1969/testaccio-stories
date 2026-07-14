@@ -96,6 +96,7 @@ export class WorldRuntime {
     this.onReady = onReady;
     this.world = hydrateWorldState(state.world, state.npcs, state.sceneId);
     this.activeId = state.activeNpc;
+    this.weather = state.weather || { type: "rain", intensity: 0.62, sequence: 0 };
     this.canvas = document.createElement("canvas");
     this.canvas.className = "world-canvas";
     this.canvas.setAttribute("aria-label", `${scene.name[state.language]} - quartiere vivo`);
@@ -469,6 +470,7 @@ export class WorldRuntime {
     const visibleAgents = this.visibleAgents().sort((left, right) => left.y - right.y);
     this.canvas.dataset.visibleAgents = String(visibleAgents.length);
     this.canvas.dataset.loadedCharacters = String(visibleAgents.filter((agent) => this.images.has(`character:${agent.id}`)).length);
+    this.canvas.dataset.weather = this.weather.type;
     this.canvas.dataset.agentPositions = visibleAgents.map((agent) => `${agent.id}:${Math.round(agent.x * this.width)},${Math.round(agent.y * this.height)}`).join(";");
     context.save();
     context.clearRect(0, 0, this.width, this.height);
@@ -480,6 +482,7 @@ export class WorldRuntime {
     this.drawGroups(context);
     visibleAgents.forEach((agent, index) => this.drawAgent(context, agent, index, time));
     this.drawEffects(context, time);
+    this.drawWeather(context, time);
     this.drawTransition(context, time);
     context.restore();
     this.positionActionWheel();
@@ -594,6 +597,89 @@ export class WorldRuntime {
     if (kind === "river-fire") {
       const glow = context.createRadialGradient(this.width * 0.56, this.height * 0.63, 2, this.width * 0.56, this.height * 0.63, 65);
       glow.addColorStop(0, `rgba(255,135,54,${0.16 + Math.sin(phase * 7) * 0.035})`); glow.addColorStop(1, "rgba(255,100,30,0)"); context.fillStyle = glow; context.fillRect(this.width * 0.43, this.height * 0.48, this.width * 0.26, this.height * 0.3);
+    }
+    context.restore();
+  }
+
+  drawWeather(context, time) {
+    const weather = this.weather;
+    if (!weather || !["rain", "fog", "storm"].includes(weather.type)) return;
+    const seconds = time / 1000;
+    const intensity = clamp(Number(weather.intensity) || 0.7, 0.25, 1);
+    const storm = weather.type === "storm";
+    context.save();
+
+    if (weather.type === "fog" || storm) {
+      const layers = weather.type === "fog" ? 7 : 3;
+      context.globalCompositeOperation = "screen";
+      for (let index = 0; index < layers; index += 1) {
+        const drift = ((seconds * (0.006 + index * 0.0015) + index * 0.23) % 1.45) - 0.22;
+        const x = drift * this.width;
+        const y = (0.3 + (index % 4) * 0.17 + Math.sin(seconds * 0.13 + index) * 0.035) * this.height;
+        const radius = this.width * (0.22 + (index % 3) * 0.055);
+        const fog = context.createRadialGradient(x, y, 0, x, y, radius);
+        fog.addColorStop(0, `rgba(205,216,214,${(weather.type === "fog" ? 0.12 : 0.045) * intensity})`);
+        fog.addColorStop(0.58, `rgba(173,190,190,${(weather.type === "fog" ? 0.075 : 0.025) * intensity})`);
+        fog.addColorStop(1, "rgba(160,180,180,0)");
+        context.fillStyle = fog;
+        context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+      }
+      if (weather.type === "fog") {
+        context.globalCompositeOperation = "source-over";
+        context.fillStyle = `rgba(177,190,188,${0.08 * intensity})`;
+        context.fillRect(0, 0, this.width, this.height);
+      }
+    }
+
+    if (weather.type === "rain" || storm) {
+      context.globalCompositeOperation = "source-over";
+      context.fillStyle = `rgba(22,35,44,${storm ? 0.14 : 0.07})`;
+      context.fillRect(0, 0, this.width, this.height);
+      const drops = storm ? 150 : 92;
+      const speed = storm ? 1.32 : 0.92;
+      const slant = storm ? 22 : 8;
+      context.lineWidth = storm ? 1.2 : 0.85;
+      for (let index = 0; index < drops; index += 1) {
+        const seedX = ((index * 47 + Number(weather.sequence) * 31) % 157) / 157;
+        const seedY = ((index * 83 + Number(weather.sequence) * 17) % 173) / 173;
+        const x = ((seedX + seconds * (0.04 + (index % 5) * 0.006)) % 1.08) * this.width - 20;
+        const y = ((seedY + seconds * speed * (0.31 + (index % 7) * 0.018)) % 1.12) * this.height - 30;
+        const length = (storm ? 22 : 13) + (index % 5) * 2;
+        context.strokeStyle = `rgba(195,224,235,${(0.2 + (index % 4) * 0.045) * intensity})`;
+        context.beginPath();
+        context.moveTo(x, y);
+        context.lineTo(x + slant, y + length);
+        context.stroke();
+      }
+      context.strokeStyle = `rgba(170,215,230,${0.16 * intensity})`;
+      for (let index = 0; index < 9; index += 1) {
+        const ripple = (seconds * 0.85 + index * 0.21) % 1;
+        const x = ((index * 0.137 + 0.11) % 1) * this.width;
+        const y = (0.68 + (index % 4) * 0.07) * this.height;
+        context.globalAlpha = 1 - ripple;
+        context.beginPath();
+        context.ellipse(x, y, 4 + ripple * 14, 1.5 + ripple * 4, 0, 0, Math.PI * 2);
+        context.stroke();
+      }
+      context.globalAlpha = 1;
+    }
+
+    if (storm) {
+      const lightningCycle = (seconds + Number(weather.sequence) * 1.7) % 8.5;
+      const flash = lightningCycle < 0.09 ? 0.6 : lightningCycle > 0.2 && lightningCycle < 0.29 ? 0.34 : 0;
+      if (flash) {
+        context.fillStyle = `rgba(215,228,255,${flash})`;
+        context.fillRect(0, 0, this.width, this.height);
+        context.strokeStyle = `rgba(240,246,255,${Math.min(1, flash + 0.3)})`;
+        context.lineWidth = 2;
+        const origin = this.width * (0.6 + (Number(weather.sequence) % 3) * 0.08);
+        context.beginPath();
+        context.moveTo(origin, 0);
+        context.lineTo(origin - 18, this.height * 0.13);
+        context.lineTo(origin + 4, this.height * 0.22);
+        context.lineTo(origin - 28, this.height * 0.34);
+        context.stroke();
+      }
     }
     context.restore();
   }

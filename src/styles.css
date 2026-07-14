@@ -1673,6 +1673,10 @@ h3 {
 
 .place-title small,
 .turn-clock small { color: #c9bead; font-size: .62rem; font-weight: 800; }
+.place-title small { display: flex; align-items: center; gap: 8px; }
+.weather-badge { padding: 2px 5px; border: 1px solid rgba(155,205,220,.42); color: #bfe7ef; background: rgba(41,74,84,.42); font-size: .55rem; font-style: normal; }
+.weather-badge.fog { border-color: rgba(215,222,218,.42); color: #e4ebe8; background: rgba(99,111,108,.38); }
+.weather-badge.storm { border-color: rgba(174,186,255,.52); color: #d9dfff; background: rgba(58,62,105,.48); }
 .place-title strong { font-size: 1rem; }
 .turn-clock { justify-self: end; border-left-color: var(--cyan); text-align: right; }
 .turn-clock strong { color: #fff; font-size: 1.25rem; font-variant-numeric: tabular-nums; }

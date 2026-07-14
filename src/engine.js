@@ -97,7 +97,8 @@ export function createGame(language = "it", player = "Ospite") {
     pendingSimpleAction: null,
     lastSimpleResult: null,
     actionSequence: 0,
-    gameLost: false
+    gameLost: false,
+    weather: { type: "rain", intensity: 0.62, sequence: 0 }
   };
 }
 
@@ -117,6 +118,7 @@ function hydrateSave(saved) {
   next.lastSimpleResult = saved.lastSimpleResult || null;
   next.actionSequence = Number(saved.actionSequence) || 0;
   next.gameLost = saved.gameLost === true;
+  next.weather = saved.weather || { type: "rain", intensity: 0.62, sequence: 0 };
   next.introSeen = saved.introSeen === true;
   next.sceneId = next.sceneId || "piazza";
   next.movement = Number(next.movement) || 0;
@@ -166,6 +168,16 @@ function hydrateSave(saved) {
 }
 
 export const SIMPLE_ACTION_DURATION = 120000;
+export const WEATHER_TYPES = ["rain", "fog", "storm"];
+
+export function weatherForSequence(sequence = 0) {
+  const type = WEATHER_TYPES[Math.abs(Number(sequence) || 0) % WEATHER_TYPES.length];
+  return {
+    type,
+    intensity: type === "storm" ? 1 : type === "rain" ? 0.68 : 0.76,
+    sequence: Number(sequence) || 0
+  };
+}
 
 export function previewSimpleAction(state, actionId, npcId = state.activeNpc, sceneId = state.sceneId) {
   const action = simpleActions.find((item) => item.id === actionId);
@@ -229,6 +241,7 @@ export function finishSimpleAction(state, now = Date.now()) {
   };
   next.pendingSimpleAction = null;
   next.actionSequence += 1;
+  next.weather = weatherForSequence(next.actionSequence);
   if (!next.gameLost) {
     const currentIndex = next.npcs.findIndex((item) => item.id === npc.id);
     const nextNpc = next.npcs[(currentIndex + 1) % next.npcs.length];
