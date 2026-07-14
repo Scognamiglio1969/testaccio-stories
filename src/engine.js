@@ -95,8 +95,14 @@ export function createGame(language = "it", player = "Ospite") {
     feedback: "",
     pulseScore: 0,
     pendingSimpleAction: null,
+    characterTurn: null,
+    characterTurnSequence: 0,
     lastSimpleResult: null,
     actionSequence: 0,
+    playerProfile: { totalActions: 0, successes: 0, failures: 0, riskTaken: 0, categories: {}, difficulty: 0 },
+    actorMemories: {},
+    activeMission: null,
+    activeCompanion: null,
     gameLost: false,
     weather: { type: "rain", intensity: 0.62, sequence: 0 }
   };
@@ -114,9 +120,23 @@ export function loadGame() {
 function hydrateSave(saved) {
   const next = { ...saved };
   next.pulseScore = Math.max(-3, Math.min(3, Number(saved.pulseScore) || 0));
-  next.pendingSimpleAction = saved.pendingSimpleAction || null;
+  // Old saves timed every single action. The focused loop times the character instead.
+  next.pendingSimpleAction = null;
+  next.characterTurn = saved.characterTurn || null;
+  next.characterTurnSequence = Number(saved.characterTurnSequence) || 0;
   next.lastSimpleResult = saved.lastSimpleResult || null;
   next.actionSequence = Number(saved.actionSequence) || 0;
+  next.playerProfile = {
+    totalActions: Number(saved.playerProfile?.totalActions) || 0,
+    successes: Number(saved.playerProfile?.successes) || 0,
+    failures: Number(saved.playerProfile?.failures) || 0,
+    riskTaken: Number(saved.playerProfile?.riskTaken) || 0,
+    categories: { ...(saved.playerProfile?.categories || {}) },
+    difficulty: Math.max(-1, Math.min(1, Number(saved.playerProfile?.difficulty) || 0))
+  };
+  next.actorMemories = { ...(saved.actorMemories || {}) };
+  next.activeMission = saved.activeMission || null;
+  next.activeCompanion = saved.activeCompanion || null;
   next.gameLost = saved.gameLost === true;
   next.weather = saved.weather || { type: "rain", intensity: 0.62, sequence: 0 };
   next.introSeen = saved.introSeen === true;
@@ -167,8 +187,39 @@ function hydrateSave(saved) {
   return next;
 }
 
-export const SIMPLE_ACTION_DURATION = 120000;
+export const SIMPLE_TURN_DURATION = 120000;
 export const WEATHER_TYPES = ["rain", "fog", "storm"];
+
+const SIMPLE_ACTION_TACTICS = {
+  listen: { specialists: ["marta", "ruggero"], scenes: ["piazza", "piazzatestaccio"], follows: ["reassure", "gather"] },
+  negotiate: { specialists: ["marta", "ilaria"], scenes: ["ponte", "mercato"], follows: ["listen", "trade"] },
+  question: { specialists: ["leila", "nina"], scenes: ["lupa", "vicoli"], follows: ["photograph", "follow"] },
+  reassure: { specialists: ["ruggero", "ilaria"], scenes: ["piazza", "palazzo"], follows: ["protect", "listen"] },
+  provoke: { specialists: ["nando"], scenes: ["ponte", "sottoponte"], follows: ["expose", "challenge"] },
+  patrol: { specialists: ["nando", "ruggero"], scenes: ["vicoli", "mattatoio"], follows: ["gather", "protect"] },
+  protect: { specialists: ["nando", "ruggero"], scenes: ["piazza", "vicoli"], follows: ["patrol", "reassure"] },
+  challenge: { specialists: ["nando"], scenes: ["ponte", "sottoponte"], follows: ["block", "provoke"] },
+  chase: { specialists: ["leila", "nando"], scenes: ["vicoli", "sottoponte"], follows: ["follow", "patrol"] },
+  block: { specialists: ["nando"], scenes: ["ponte", "mattatoio"], follows: ["patrol", "repair"] },
+  photograph: { specialists: ["nina"], scenes: ["lupa", "mattatoio", "palazzo"], follows: ["follow", "search"] },
+  follow: { specialists: ["leila", "nina"], scenes: ["vicoli", "mercato"], follows: ["listen", "photograph"] },
+  search: { specialists: ["leila", "nina"], scenes: ["monte", "mattatoio"], follows: ["question", "infiltrate"] },
+  infiltrate: { specialists: ["leila"], scenes: ["mercato", "sottoponte"], follows: ["search", "sabotage"] },
+  expose: { specialists: ["marta", "nina"], scenes: ["piazza", "lupa"], follows: ["question", "photograph"] },
+  trade: { specialists: ["ilaria", "marta"], scenes: ["ponte", "mercato"], follows: ["negotiate", "deliver"] },
+  repair: { specialists: ["ilaria", "nando"], scenes: ["palazzo", "mattatoio"], follows: ["deliver", "block"] },
+  deliver: { specialists: ["leila", "ilaria"], scenes: ["mercato", "palazzo"], follows: ["trade", "protect"] },
+  gather: { specialists: ["marta", "ruggero"], scenes: ["piazza", "monte"], follows: ["listen", "patrol"] },
+  sabotage: { specialists: ["leila", "nando"], scenes: ["sottoponte", "mattatoio"], follows: ["infiltrate", "block"] }
+};
+
+const makeCharacterTurn = (npcId, now, sequence = 0) => ({
+  npcId,
+  startedAt: now,
+  endsAt: now + SIMPLE_TURN_DURATION,
+  usedActions: [],
+  sequence
+});
 
 export function weatherForSequence(sequence = 0) {
   const type = WEATHER_TYPES[Math.abs(Number(sequence) || 0) % WEATHER_TYPES.length];
@@ -186,72 +237,173 @@ export function previewSimpleAction(state, actionId, npcId = state.activeNpc, sc
   if (!action || !npc) return null;
   const aptitude = Number(npc.aptitudes?.[action.kind]) || 0;
   const placeBonus = scene.favoredAction === action.kind ? 2 : 0;
+  const tactics = SIMPLE_ACTION_TACTICS[action.id] || {};
+  const specialistBonus = tactics.specialists?.includes(npc.id) ? 2 : 0;
+  const sceneBonus = tactics.scenes?.includes(scene.id) ? 2 : 0;
+  const chainBonus = tactics.follows?.includes(state.lastSimpleResult?.actionId) ? 1 : 0;
+  const companionBonus = state.activeCompanion ? 1 : 0;
   const risk = Number(action.risk) || 0;
   const variation = ((state.actionSequence + action.id.length + npc.id.length + scene.id.length) % 5) - 2;
-  const performance = aptitude + placeBonus + variation - risk;
+  const adaptiveDifficulty = Number(state.playerProfile?.difficulty) || 0;
+  const performance = aptitude + placeBonus + specialistBonus + sceneBonus + chainBonus + companionBonus + variation - risk - adaptiveDifficulty;
   const polarity = performance >= 6 ? "positive" : performance >= 3 ? "neutral" : "negative";
   const delta = polarity === "positive" ? 1 : polarity === "negative" ? -1 : 0;
-  const reason = placeBonus
+  const reason = specialistBonus && sceneBonus
+    ? { it: `${npc.name} domina questa mossa proprio in questo luogo.`, en: `${npc.name} excels at this move in this place.` }
+    : chainBonus
+      ? { it: "La mossa continua la strategia precedente.", en: "This move continues the previous strategy." }
+      : specialistBonus
+        ? { it: `${npc.name} ha il talento giusto.`, en: `${npc.name} has the right talent.` }
+        : sceneBonus
+          ? { it: `${scene.name.it} offre l'occasione giusta.`, en: `${scene.name.en} offers the right opening.` }
+          : placeBonus
     ? { it: `${scene.name.it} favorisce questa mossa.`, en: `${scene.name.en} favors this move.` }
     : aptitude >= 4
       ? { it: `${npc.name} e particolarmente adatto.`, en: `${npc.name} is especially suited.` }
       : risk
         ? { it: "Mossa rischiosa per questo personaggio.", en: "A risky move for this character." }
         : { it: "Mossa possibile, ma senza vantaggi.", en: "Possible, but without an advantage." };
-  return { action, npc, scene, aptitude, placeBonus, risk, performance, polarity, delta, reason };
+  return { action, npc, scene, aptitude, placeBonus, specialistBonus, sceneBonus, chainBonus, companionBonus, risk, adaptiveDifficulty, performance, polarity, delta, reason };
 }
 
-export function startSimpleAction(state, actionId, now = Date.now()) {
-  if (state.pendingSimpleAction || state.gameLost) return state;
-  const action = simpleActions.find((item) => item.id === actionId);
-  const npc = state.npcs.find((item) => item.id === state.activeNpc);
-  if (!action || !npc) return state;
+export function applyStoryChoice(state, actor, dialogue, choice, choiceIndex = 0, now = Date.now()) {
+  if (!actor || !dialogue || typeof choice !== "string") return state;
   const next = copy(state);
-  next.pendingSimpleAction = {
-    id: action.id,
-    npcId: npc.id,
-    startedAt: now,
-    endsAt: now + SIMPLE_ACTION_DURATION
+  const memory = {
+    sceneId: next.sceneId,
+    npcId: next.activeNpc,
+    emotion: dialogue.emotion,
+    line: dialogue.line,
+    choice,
+    missionId: dialogue.mission?.id || null,
+    at: now
   };
-  next.lastSimpleResult = null;
+  next.actorMemories[actor.id] = [...(next.actorMemories[actor.id] || []), memory].slice(-6);
+  if (actor.category === "quest-giver" && choiceIndex === 0) next.activeMission = dialogue.mission;
+  if (actor.category === "companion" && choiceIndex === 0) next.activeCompanion = actor.id;
+  saveGame(next);
+  return next;
+}
+
+export function startCharacterTurn(state, now = Date.now()) {
+  if (state.gameLost) return state;
+  const next = copy(state);
+  next.pendingSimpleAction = null;
+  next.characterTurn = makeCharacterTurn(next.activeNpc, now, next.characterTurnSequence || 0);
+  saveGame(next);
+  return next;
+}
+
+export function ensureCharacterTurn(state, now = Date.now()) {
+  if (state.phase !== "game" || state.gameLost) return state;
+  if (!state.characterTurn || state.characterTurn.npcId !== state.activeNpc) return startCharacterTurn(state, now);
+  if (now >= state.characterTurn.endsAt) return advanceCharacterTurn(state, now, true);
+  return state;
+}
+
+function simpleFactionReaction(next, polarity) {
+  const presence = next.world?.factionPresence?.find((item) => item.sceneId === next.sceneId && item.stance !== "retreating");
+  const faction = next.factions.find((item) => item.id === presence?.factionId);
+  if (!faction) return { it: "il rione registra la scelta", en: "the district registers the choice" };
+  const relationDelta = polarity === "positive" ? 2 : polarity === "negative" ? -2 : 0;
+  const pressureDelta = polarity === "positive" ? -2 : polarity === "negative" ? 2 : 0;
+  faction.relation = clamp(faction.relation + relationDelta, -100, 100);
+  faction.pressure = clamp(faction.pressure + pressureDelta, 0, 100);
+  if (presence) presence.stance = polarity === "positive" ? "wary" : polarity === "negative" ? "hostile" : presence.stance;
+  return polarity === "positive"
+    ? { it: `${faction.name} perde terreno`, en: `${faction.name} loses ground` }
+    : polarity === "negative"
+      ? { it: `${faction.name} aumenta la pressione`, en: `${faction.name} increases the pressure` }
+      : { it: `${faction.name} resta in attesa`, en: `${faction.name} holds position` };
+}
+
+export function performSimpleAction(state, actionId, now = Date.now()) {
+  const ready = ensureCharacterTurn(state, now);
+  if (ready.gameLost) return ready;
+  const action = simpleActions.find((item) => item.id === actionId);
+  const npc = ready.npcs.find((item) => item.id === ready.activeNpc);
+  if (!action || !npc) return state;
+  if (ready.characterTurn?.usedActions?.includes(action.id)) return ready;
+  const next = copy(ready);
+  const preview = previewSimpleAction(next, action.id, npc.id, next.sceneId);
+  const { polarity, delta } = preview;
+  next.pulseScore = Math.max(-3, Math.min(3, next.pulseScore + delta));
+  next.gameLost = next.pulseScore <= -3;
+  next.actionSequence += 1;
+  next.characterTurn.usedActions.push(action.id);
+  const profile = next.playerProfile || { totalActions: 0, successes: 0, failures: 0, riskTaken: 0, categories: {}, difficulty: 0 };
+  profile.totalActions += 1;
+  if (polarity === "positive") profile.successes += 1;
+  if (polarity === "negative") profile.failures += 1;
+  profile.riskTaken += Number(action.risk) || 0;
+  profile.categories[action.category] = (Number(profile.categories[action.category]) || 0) + 1;
+  const successRate = profile.successes / Math.max(1, profile.totalActions);
+  profile.difficulty = profile.totalActions < 4 ? 0 : successRate >= 0.67 ? 1 : successRate <= 0.34 ? -1 : 0;
+  next.playerProfile = profile;
+  const reaction = simpleFactionReaction(next, polarity);
+  next.lastSimpleResult = {
+    actionId: action.id,
+    npcId: npc.id,
+    sceneId: next.sceneId,
+    polarity,
+    delta,
+    text: {
+      it: `${npc.name} ${action.outcome[polarity].it}; ${reaction.it}.`,
+      en: `${npc.name} ${action.outcome[polarity].en}; ${reaction.en}.`
+    },
+    at: now
+  };
+  const storedNpc = next.npcs.find((item) => item.id === npc.id);
+  storedNpc.memory = [...(storedNpc.memory || []), {
+    actionId: action.id,
+    sceneId: next.sceneId,
+    polarity,
+    at: now
+  }].slice(-5);
   next.world = evolveWorldForAction(next.world, action.kind, npc.id, next.npcs, next.sceneId, next.day);
   saveGame(next);
   return next;
 }
 
-export function finishSimpleAction(state, now = Date.now()) {
-  const pending = state.pendingSimpleAction;
-  if (!pending || now < pending.endsAt) return state;
-  const action = simpleActions.find((item) => item.id === pending.id);
-  const npc = state.npcs.find((item) => item.id === pending.npcId);
-  if (!action || !npc) return state;
+export function advanceCharacterTurn(state, now = Date.now(), force = false) {
+  if (state.gameLost) return state;
+  const currentTurn = state.characterTurn;
+  if (currentTurn && !force && now < currentTurn.endsAt) return state;
   const next = copy(state);
-  const preview = previewSimpleAction(next, action.id, npc.id, next.sceneId);
-  const { polarity, delta } = preview;
-  next.pulseScore = Math.max(-3, Math.min(3, next.pulseScore + delta));
-  next.gameLost = next.pulseScore <= -3;
-  next.lastSimpleResult = {
-    polarity,
-    delta,
-    text: {
-      it: `${npc.name}: ${action.outcome[polarity].it}.`,
-      en: `${npc.name}: ${action.outcome[polarity].en}.`
-    },
-    at: now
-  };
-  next.pendingSimpleAction = null;
-  next.actionSequence += 1;
-  next.weather = weatherForSequence(next.actionSequence);
-  if (!next.gameLost) {
-    const currentIndex = next.npcs.findIndex((item) => item.id === npc.id);
-    const nextNpc = next.npcs[(currentIndex + 1) % next.npcs.length];
-    next.activeNpc = nextNpc.id;
-    const nextScene = next.world?.agents?.[nextNpc.id]?.sceneId;
-    if (nextScene && scenes.some((item) => item.id === nextScene)) {
-      next.sceneId = nextScene;
-      next.world.sceneId = nextScene;
+  const timedOut = currentTurn && now >= currentTurn.endsAt && !currentTurn.usedActions?.length;
+  if (timedOut) {
+    const currentNpc = next.npcs.find((item) => item.id === next.activeNpc);
+    next.pulseScore = Math.max(-3, next.pulseScore - 1);
+    next.gameLost = next.pulseScore <= -3;
+    next.lastSimpleResult = {
+      actionId: "timeout",
+      npcId: currentNpc.id,
+      sceneId: next.sceneId,
+      polarity: "negative",
+      delta: -1,
+      text: {
+        it: `${currentNpc.name} esita fino allo scadere; i rivali conquistano spazio.`,
+        en: `${currentNpc.name} hesitates until time runs out; the rivals gain ground.`
+      },
+      at: now
+    };
+    if (next.gameLost) {
+      saveGame(next);
+      return next;
     }
   }
+  next.pendingSimpleAction = null;
+  const currentIndex = Math.max(0, next.npcs.findIndex((item) => item.id === next.activeNpc));
+  const nextNpc = next.npcs[(currentIndex + 1) % next.npcs.length];
+  next.activeNpc = nextNpc.id;
+  const nextScene = next.world?.agents?.[nextNpc.id]?.sceneId;
+  if (nextScene && scenes.some((item) => item.id === nextScene)) {
+    next.sceneId = nextScene;
+    next.world.sceneId = nextScene;
+  }
+  next.characterTurnSequence = (Number(next.characterTurnSequence) || 0) + 1;
+  next.characterTurn = makeCharacterTurn(nextNpc.id, now, next.characterTurnSequence);
+  next.weather = weatherForSequence(next.characterTurnSequence);
   saveGame(next);
   return next;
 }
@@ -275,6 +427,7 @@ export function selectNpc(state, id) {
   const next = copy(state);
   const targetScene = next.world?.agents?.[id]?.sceneId;
   next.activeNpc = id;
+  next.characterTurn = makeCharacterTurn(id, Date.now(), next.characterTurnSequence || 0);
   next.phase = "game";
   next.activePanel = "closed";
   if (targetScene && scenes.some((scene) => scene.id === targetScene)) {

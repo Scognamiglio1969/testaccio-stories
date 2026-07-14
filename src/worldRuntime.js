@@ -1,4 +1,4 @@
-import { actionPresentation, activityLabels, characterAssets, characterProfiles, crisisPresentation, factionAssets, factionVisuals, npcRoutineAnchor, sceneGraphs, sceneProfiles, sceneTransitionContract } from "./worldData.js";
+import { actionPresentation, activityLabels, characterAssets, characterProfiles, crisisPresentation, factionAssets, factionVisuals, npcRoutineAnchor, sceneGraphs, sceneProfiles, sceneTransitionContract, simpleActionPresentation } from "./worldData.js";
 import { hydrateWorldState, setAgentDestination } from "./worldState.js";
 import { scenes } from "./gameData.js";
 
@@ -1078,6 +1078,58 @@ export class WorldRuntime {
         context.closePath();
         context.fill();
       }
+      if (effect.type === "scan") {
+        context.lineWidth = 2;
+        context.setLineDash([5, 7]);
+        context.beginPath(); context.arc(x, y, 24 + progress * 86, -0.8, 1.3); context.stroke();
+        context.setLineDash([]);
+        context.beginPath(); context.moveTo(x, y); context.lineTo(x + Math.cos(progress * 5) * 112, y + Math.sin(progress * 5) * 52); context.stroke();
+      }
+      if (effect.type === "shield") {
+        context.lineWidth = 4;
+        context.beginPath(); context.arc(x, y - 18, 26 + progress * 30, Math.PI, Math.PI * 2); context.stroke();
+        context.beginPath(); context.arc(x, y - 18, 15 + progress * 18, Math.PI, Math.PI * 2); context.stroke();
+      }
+      if (effect.type === "barrier") {
+        context.lineWidth = 2;
+        [-1, 0, 1].forEach((index) => {
+          context.save(); context.translate(x + index * 38, y - 8); context.rotate(index * 0.06);
+          context.fillRect(-22, -7, 44, 14); context.strokeStyle = "#f2eadf"; context.strokeRect(-22, -7, 44, 14); context.restore();
+        });
+      }
+      if (effect.type === "trail") {
+        context.lineWidth = 4;
+        context.setLineDash([10, 10]); context.lineDashOffset = -progress * 60;
+        context.beginPath(); context.moveTo(x - 110, y + 28); context.quadraticCurveTo(x, y - 52, x + 108, y - 12); context.stroke();
+        context.setLineDash([]);
+      }
+      if (effect.type === "camera") {
+        context.globalAlpha = Math.max(0, 1 - progress * 3);
+        context.fillStyle = "rgba(255,255,245,.72)"; context.fillRect(0, 0, this.width, this.height);
+        context.globalAlpha = alpha; context.lineWidth = 3;
+        const size = 58 + progress * 35;
+        [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx, sy]) => {
+          context.beginPath(); context.moveTo(x + sx * size, y + sy * size * .68); context.lineTo(x + sx * (size - 22), y + sy * size * .68);
+          context.moveTo(x + sx * size, y + sy * size * .68); context.lineTo(x + sx * size, y + sy * (size * .68 - 22)); context.stroke();
+        });
+      }
+      if (effect.type === "smoke") {
+        for (let index = 0; index < 7; index += 1) {
+          const angle = index * 1.9;
+          context.globalAlpha = alpha * .35;
+          context.beginPath(); context.arc(x + Math.cos(angle) * progress * 55, y - progress * 35 + Math.sin(angle) * 18, 18 + progress * 24, 0, Math.PI * 2); context.fill();
+        }
+      }
+      if (effect.type === "burst" || effect.type === "sparks") {
+        const count = effect.type === "sparks" ? 12 : 18;
+        context.lineWidth = effect.type === "sparks" ? 2 : 4;
+        for (let index = 0; index < count; index += 1) {
+          const angle = index / count * Math.PI * 2;
+          const inner = 18 + progress * 28;
+          const outer = inner + 20 + progress * 44;
+          context.beginPath(); context.moveTo(x + Math.cos(angle) * inner, y + Math.sin(angle) * inner); context.lineTo(x + Math.cos(angle) * outer, y + Math.sin(angle) * outer); context.stroke();
+        }
+      }
       if (effect.type === "float" && effect.text) {
         context.font = "900 14px Inter, system-ui, sans-serif";
         context.textAlign = "center";
@@ -1222,6 +1274,35 @@ export class WorldRuntime {
       this.world.agents[id].pace = 0.05;
       this.world.agents[id].action = null;
     });
+    this.busy = false;
+    this.canvas.classList.remove("directing");
+    this.snapshot();
+    return true;
+  }
+
+  async playSimpleAction(actionId, { label = "", polarity = "neutral", score = "0" } = {}) {
+    const presentation = simpleActionPresentation[actionId];
+    if (this.busy || !presentation) return false;
+    this.clearHover();
+    this.busy = true;
+    const token = this.beginSequence();
+    this.canvas.classList.add("directing");
+    const active = this.ensureInScene(this.activeId);
+    setAgentDestination(this.world, active.id, presentation.anchor, this.scene.id);
+    active.pace = 0.24;
+    active.activity = presentation.activity;
+    const arrival = await this.waitForAgents([active.id], 850, token);
+    if (arrival.status === "cancelled") return false;
+    const anchorId = sceneGraphs[this.scene.id].anchors[presentation.anchor] || presentation.anchor;
+    const anchor = sceneGraphs[this.scene.id].nodes[anchorId] || { x: active.x, y: active.y };
+    this.effect(presentation.effect, { x: anchor.x, y: anchor.y, color: presentation.color, duration: 1050 });
+    if (polarity === "negative" && presentation.effect !== "standoff") this.effect("standoff", { x: anchor.x, y: anchor.y, color: "#d85b4b", duration: 1000 });
+    if (polarity === "positive" && ["rally", "shield"].includes(presentation.effect) === false) this.effect("rally", { x: anchor.x, y: anchor.y, color: "#79d58a", duration: 900 });
+    this.effect("float", { x: anchor.x, y: anchor.y - 0.06, text: `${score} · ${label}`, color: polarity === "positive" ? "#79d58a" : polarity === "negative" ? "#d85b4b" : "#d9b45f", duration: 1500 });
+    this.onImpact?.({ type: "simple-action", actionId, polarity });
+    await this.wait(720, token);
+    active.pace = 0.05;
+    active.action = null;
     this.busy = false;
     this.canvas.classList.remove("directing");
     this.snapshot();

@@ -10,9 +10,11 @@ import {
   loadGame,
   npcAction,
   resolveCrisis,
-  startSimpleAction,
-  finishSimpleAction,
-  SIMPLE_ACTION_DURATION,
+  startCharacterTurn,
+  performSimpleAction,
+  advanceCharacterTurn,
+  applyStoryChoice,
+  SIMPLE_TURN_DURATION,
   previewSimpleAction
 } from "../src/engine.js";
 import { simpleActions } from "../src/gameData.js";
@@ -152,16 +154,52 @@ const simpleStart = 1000;
 let focus = createGame("it", "Focus");
 focus.phase = "game";
 const expectedFocusResult = previewSimpleAction(focus, "listen");
-focus = startSimpleAction(focus, "listen", simpleStart);
-assert.equal(focus.pendingSimpleAction.endsAt, simpleStart + SIMPLE_ACTION_DURATION);
-assert.equal(finishSimpleAction(focus, simpleStart + 1000), focus);
-focus = finishSimpleAction(focus, simpleStart + SIMPLE_ACTION_DURATION);
-assert.equal(focus.pendingSimpleAction, null);
+focus = startCharacterTurn(focus, simpleStart);
+assert.equal(focus.characterTurn.endsAt, simpleStart + SIMPLE_TURN_DURATION);
+focus = performSimpleAction(focus, "listen", simpleStart + 1000);
 assert.ok(["negative", "neutral", "positive"].includes(focus.lastSimpleResult.polarity));
 assert.equal(focus.lastSimpleResult.polarity, expectedFocusResult.polarity);
 assert.equal(focus.lastSimpleResult.delta, expectedFocusResult.delta);
+assert.equal(focus.activeNpc, "marta");
+assert.equal(focus.characterTurn.endsAt, simpleStart + SIMPLE_TURN_DURATION);
+assert.deepEqual(focus.characterTurn.usedActions, ["listen"]);
+assert.equal(performSimpleAction(focus, "listen", simpleStart + 2000), focus);
+assert.equal(advanceCharacterTurn(focus, simpleStart + 3000), focus);
+focus = advanceCharacterTurn(focus, simpleStart + SIMPLE_TURN_DURATION, true);
 assert.equal(focus.activeNpc, "nando");
 assert.equal(focus.weather.type, "fog");
 assert.equal(Object.keys(focus.lastSimpleResult.text).length, 2);
+
+let idleTurn = createGame("it", "Idle");
+idleTurn.phase = "game";
+idleTurn = startCharacterTurn(idleTurn, simpleStart);
+idleTurn = advanceCharacterTurn(idleTurn, simpleStart + SIMPLE_TURN_DURATION, true);
+assert.equal(idleTurn.lastSimpleResult.actionId, "timeout");
+assert.equal(idleTurn.lastSimpleResult.delta, -1);
+assert.equal(idleTurn.pulseScore, -1);
+assert.equal(idleTurn.activeNpc, "nando");
+
+const ninaPhoto = previewSimpleAction(createGame("it", "Tactics"), "photograph", "nina", "lupa");
+const edoPhoto = previewSimpleAction(createGame("it", "Tactics"), "photograph", "nando", "ponte");
+assert.ok(ninaPhoto.performance > edoPhoto.performance);
+
+let adaptive = createGame("it", "Adaptive");
+adaptive.phase = "game";
+adaptive = startCharacterTurn(adaptive, 5000);
+for (const [index, action] of ["listen", "negotiate", "question", "reassure"].entries()) {
+  adaptive = performSimpleAction(adaptive, action, 5100 + index);
+}
+assert.equal(adaptive.playerProfile.totalActions, 4);
+assert.ok([-1, 0, 1].includes(adaptive.playerProfile.difficulty));
+
+const questActor = { id: "adriana", category: "quest-giver" };
+const questDialogue = { line: "Serve una mano.", emotion: "urgent", choices: ["Accetto", "Dimmi altro", "No"], mission: { id: "mission-test", objective: "Trova il registro" } };
+adaptive = applyStoryChoice(adaptive, questActor, questDialogue, "Accetto", 0, 6000);
+assert.equal(adaptive.activeMission.id, "mission-test");
+assert.equal(adaptive.actorMemories.adriana.length, 1);
+
+const companionActor = { id: "jack", category: "companion" };
+adaptive = applyStoryChoice(adaptive, companionActor, questDialogue, "Accetto", 0, 6001);
+assert.equal(adaptive.activeCompanion, "jack");
 
 console.log("Game systems smoke test passed.");

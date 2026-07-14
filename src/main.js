@@ -1,6 +1,7 @@
 import { badges, scenes, simpleActions, strings } from "./gameData.js";
 import { activityLabels, characterAssets, factionAssets } from "./worldData.js";
 import { WorldRuntime } from "./worldRuntime.js";
+import { ACTOR_CATEGORIES, generateActorDialogue, getActor, getActorsForScene } from "./storyActors.js";
 import {
   advanceDay,
   canCraft,
@@ -22,14 +23,19 @@ import {
   resolveCrisis,
   saveGame,
   selectNpc,
-  startSimpleAction,
-  finishSimpleAction,
+  startCharacterTurn,
+  ensureCharacterTurn,
+  advanceCharacterTurn,
+  applyStoryChoice,
+  performSimpleAction,
   previewSimpleAction
 } from "./engine.js";
 
 const app = document.querySelector("#app");
 let state = loadGame() || createGame();
+if (state.phase === "game") state = ensureCharacterTurn(state, Date.now());
 let audioEnabled = localStorage.getItem("ts-audio") !== "off";
+let weatherAudioEnabled = localStorage.getItem("ts-weather-audio") !== "off";
 let worldRuntime = null;
 let interactionBusy = false;
 let beatTimer = null;
@@ -39,6 +45,7 @@ let factionHighlightTimer = null;
 let pendingHighRiskAction = null;
 let simpleClock = null;
 let actionCategory = "social";
+let actorDialogue = null;
 
 app.addEventListener("click", (event) => {
   const close = event.target.closest("[data-action='dismiss-world-beat']");
@@ -164,6 +171,10 @@ const sound = {
   syncAtmosphere(type = "rain") {
     if (!audioEnabled || !this.ensure()) return;
     this.startAmbient();
+    if (!weatherAudioEnabled) {
+      this.stopWeather();
+      return;
+    }
     if (this.weatherType === type && this.weatherNodes.length) return;
     this.stopWeather();
     this.weatherType = type;
@@ -217,6 +228,7 @@ const sound = {
     this.noise(1.05, 0.075, 190, "lowpass");
   },
   weatherEvent(type) {
+    if (!weatherAudioEnabled) return;
     this.syncAtmosphere(type);
     if (type === "storm") this.thunder();
     else if (type === "rain") this.noise(0.4, 0.028, 1800, "bandpass");
@@ -247,9 +259,12 @@ function activityLabel(value) {
 function setState(next) {
   const previousWeather = state.weather?.type;
   const previousResult = state.lastSimpleResult?.at;
+  const previousScene = state.sceneId;
+  const previousNpc = state.activeNpc;
   worldRuntime?.destroy();
   worldRuntime = null;
-  state = next;
+  state = next.phase === "game" ? ensureCharacterTurn(next, Date.now()) : next;
+  if (state.sceneId !== previousScene || state.activeNpc !== previousNpc) actorDialogue = null;
   render();
   if (state.weather?.type !== previousWeather) sound.weatherEvent(state.weather.type);
   if (state.lastSimpleResult?.at && state.lastSimpleResult.at !== previousResult) sound.result(state.lastSimpleResult.polarity);
@@ -480,6 +495,7 @@ function renderTopbar() {
       </button>
       <div class="top-actions">
         <button class="chip audio-toggle ${audioEnabled ? "on" : ""}" data-action="audio">${audioEnabled ? "Suono" : "Muto"}</button>
+        <button class="chip weather-audio-toggle ${weatherAudioEnabled ? "on" : ""}" data-action="weather-audio" role="switch" aria-checked="${weatherAudioEnabled}">${state.language === "it" ? "Meteo" : "Weather"} ${weatherAudioEnabled ? "on" : "off"}</button>
         <button class="chip" data-action="landing">${t("landing")}</button>
         <button class="icon-button" data-action="toggle-lang">${state.language.toUpperCase()}</button>
       </div>
@@ -556,8 +572,8 @@ function renderIntro() {
     {
       eyebrow: "Come si gioca",
       title: "Un personaggio. Due minuti. Una conseguenza.",
-      body: "Scegli una delle venti azioni. Il personaggio la esegue nella scena; allo scadere del timer leggi l'esito e passa automaticamente al ragazzo successivo.",
-      points: ["Cinque azioni alla volta, divise in quattro gruppi.", "Ogni esito e positivo, neutro o negativo.", "Personaggio e luogo cambiano a ogni turno."]
+      body: "Hai due minuti con ogni personaggio. Puoi compiere piu azioni: ciascuna avviene subito, cambia il punteggio e produce una reazione visibile; allo scadere entra il personaggio successivo.",
+      points: ["Cinque azioni alla volta, divise in quattro gruppi.", "Ogni azione si usa una volta per turno.", "Esito e punteggio compaiono immediatamente."]
     },
     {
       eyebrow: "Il tuo obiettivo",
@@ -590,7 +606,7 @@ function renderGame() {
   const npc = state.npcs.find((item) => item.id === state.activeNpc);
   const scene = getScene(state);
   const faction = activeSimpleFaction();
-  const pending = state.pendingSimpleAction;
+  const turn = state.characterTurn;
   const result = state.lastSimpleResult;
   return `
     <section class="simple-game ${state.gameLost ? "game-lost" : ""}">
@@ -601,19 +617,22 @@ function renderGame() {
           <header class="simple-hud">
             <div class="place-title"><small>${state.language === "it" ? "LUOGO" : "PLACE"}<em class="weather-badge ${state.weather?.type || "rain"}">${weatherLabel()}</em></small><strong>${scene.name[state.language]}</strong></div>
             ${renderPulseScore()}
-            <div class="turn-clock ${pending ? "running" : ""}"><small>${pending ? (state.language === "it" ? "AZIONE IN CORSO" : "ACTION RUNNING") : (state.language === "it" ? "TOCCA A" : "TURN")}</small><strong data-simple-clock>${pending ? formatSimpleTime(pending.endsAt - Date.now()) : npc.name}</strong></div>
+            <div class="turn-clock running"><small>${state.language === "it" ? `TEMPO DI ${npc.name}` : `${npc.name.toUpperCase()}'S TIME`}</small><strong data-simple-clock>${formatSimpleTime((turn?.endsAt || Date.now()) - Date.now())}</strong></div>
           </header>
+          ${renderStageSceneArrows()}
           <nav class="info-tabs" aria-label="Informazioni">
             <button data-simple-panel="people" title="Personaggi" aria-label="Personaggi">P</button>
             <button data-simple-panel="districts" title="Quartieri" aria-label="Quartieri">Q</button>
             <button data-simple-panel="place" title="Luogo" aria-label="Luogo">L</button>
           </nav>
+          ${renderStoryCast(scene)}
+          ${renderActorDialogue()}
           ${renderSimpleInfo(scene, faction)}
-          ${result ? `<div class="simple-result ${result.polarity}" data-simple-result><b>${result.polarity === "positive" ? "+" : result.polarity === "negative" ? "-" : "="}</b><span>${result.text[state.language]}</span><button data-action="dismiss-simple-result" aria-label="Chiudi">x</button></div>` : ""}
+          ${result ? `<div class="simple-result ${result.polarity}" data-simple-result><b>${result.delta > 0 ? "+1" : result.delta < 0 ? "-1" : "0"}</b><span><small>${state.language === "it" ? "RISULTATO DELL'AZIONE" : "ACTION RESULT"}</small>${result.text[state.language]}</span><button data-action="dismiss-simple-result" aria-label="Chiudi">×</button></div>` : ""}
           ${state.gameLost ? `<div class="loss-screen"><small>TESTACCIO CEDE</small><h1>${state.language === "it" ? "Il rione si e spezzato." : "The district has broken."}</h1><button class="primary" data-action="new">${state.language === "it" ? "Ricomincia" : "Restart"}</button></div>` : ""}
-          ${renderSimpleActions(npc, pending)}
+          ${renderSimpleActions(npc, turn)}
         </section>
-        ${renderSimpleCharacter(npc, pending, faction)}
+        ${renderSimpleCharacter(npc, turn, faction)}
       </div>
     </section>
   `;
@@ -636,20 +655,21 @@ function weatherLabel() {
 function renderPulseScore() {
   const polarity = state.pulseScore > 0 ? "positive" : state.pulseScore < 0 ? "negative" : "neutral";
   const names = state.language === "it" ? { negative: "NEGATIVO", neutral: "NEUTRO", positive: "POSITIVO" } : { negative: "NEGATIVE", neutral: "NEUTRAL", positive: "POSITIVE" };
-  return `<div class="pulse-score ${polarity}" aria-label="${names[polarity]}"><i></i><i></i><i></i><strong>${names[polarity]}</strong></div>`;
+  const value = state.pulseScore > 0 ? `+${state.pulseScore}` : String(state.pulseScore);
+  return `<div class="pulse-score ${polarity}" aria-label="${names[polarity]} ${value}"><i></i><i></i><i></i><strong>${names[polarity]} · ${value}</strong></div>`;
 }
 
-function renderSimpleCharacter(npc, pending, faction) {
-  const pendingAction = simpleActions.find((item) => item.id === pending?.id);
+function renderSimpleCharacter(npc, turn, faction) {
+  const moves = turn?.usedActions?.length || 0;
   return `
     <aside class="hero-character" style="--npc-color:${npc.color}">
-      <div class="hero-character-name"><small>${pending ? (state.language === "it" ? "STA ESEGUENDO" : "PERFORMING") : (state.language === "it" ? "ORA TOCCA A" : "NOW PLAYING")}</small><h2>${npc.name}</h2>${pendingAction ? `<b>${pendingAction.label[state.language]}</b>` : `<b>${npc.trait}</b>`}</div>
+      <div class="hero-character-name"><small>${state.language === "it" ? "ORA TOCCA A" : "NOW PLAYING"}</small><h2>${npc.name}</h2><b>${npc.trait} · ${moves} ${state.language === "it" ? "mosse" : "moves"}</b></div>
       <img src="${characterAssets[npc.id]}" alt="${npc.name}" draggable="false">
       <footer><span>${npc.specialties.slice(0, 2).map((item) => item[state.language]).join(" · ")}</span><small>${faction.name} ${state.language === "it" ? "e in zona" : "is nearby"}</small></footer>
     </aside>`;
 }
 
-function renderSimpleActions(npc, pending) {
+function renderSimpleActions(npc, turn) {
   const categories = {
     social: state.language === "it" ? "Sociale" : "Social",
     street: state.language === "it" ? "Strada" : "Street",
@@ -658,35 +678,112 @@ function renderSimpleActions(npc, pending) {
   };
   const actions = simpleActions.filter((item) => item.category === actionCategory);
   const previews = actions.map((action) => previewSimpleAction(state, action.id));
-  const recommended = previews.find((preview) => preview.polarity === "positive") || previews.find((preview) => preview.polarity === "neutral") || previews[0];
+  const recommended = previews[0];
   return `
-    <section class="simple-actions ${pending ? "waiting" : ""}" aria-label="20 azioni di ${npc.name}">
-      <div class="action-categories">${Object.entries(categories).map(([id, name]) => `<button class="${id === actionCategory ? "active" : ""}" data-action-category="${id}" ${pending ? "disabled" : ""}>${name}</button>`).join("")}</div>
+    <section class="simple-actions" aria-label="20 azioni di ${npc.name}">
+      <div class="action-categories">${Object.entries(categories).map(([id, name]) => `<button class="${id === actionCategory ? "active" : ""}" data-action-category="${id}">${name}</button>`).join("")}</div>
       <div class="action-explanation" data-action-explanation>${renderActionExplanation(recommended)}</div>
       <div class="action-five">${actions.map((action, index) => {
-        const preview = previews[index];
-        const sign = preview.delta > 0 ? "+1" : preview.delta < 0 ? "-1" : "0";
-        return `<button class="predicted-${preview.polarity}" data-simple-action="${action.id}" data-action-preview="${action.id}" ${pending ? "disabled" : ""}><small>${String(index + 1).padStart(2, "0")}</small><b>${action.label[state.language]}</b><em>${action.outcome.positive[state.language]}</em><strong>${sign}</strong></button>`;
+        const used = turn?.usedActions?.includes(action.id);
+        return `<button class="${used ? "used" : ""}" data-simple-action="${action.id}" data-action-preview="${action.id}" ${used || interactionBusy ? "disabled" : ""}><small>${used ? "✓" : String(index + 1).padStart(2, "0")}</small><b>${action.label[state.language]}</b><em>${used ? (state.language === "it" ? "gia eseguita in questo turno" : "already used this turn") : action.outcome.positive[state.language]}</em></button>`;
       }).join("")}</div>
     </section>`;
+}
+
+function renderStageSceneArrows() {
+  const currentIndex = Math.max(0, scenes.findIndex((scene) => scene.id === state.sceneId));
+  const previous = scenes[(currentIndex - 1 + scenes.length) % scenes.length];
+  const next = scenes[(currentIndex + 1) % scenes.length];
+  return `
+    <button class="stage-zone-arrow previous" data-scene="${previous.id}" aria-label="${state.language === "it" ? `Vai a ${previous.name.it}` : `Go to ${previous.name.en}`}" title="${previous.name[state.language]}">‹</button>
+    <button class="stage-zone-arrow next" data-scene="${next.id}" aria-label="${state.language === "it" ? `Vai a ${next.name.it}` : `Go to ${next.name.en}`}" title="${next.name[state.language]}">›</button>`;
+}
+
+function renderStoryCast(scene) {
+  const roles = [
+    [ACTOR_CATEGORIES.QUEST_GIVER, state.language === "it" ? "Missione" : "Quest", "!"],
+    [ACTOR_CATEGORIES.COMPANION, state.language === "it" ? "Compagno" : "Companion", "+"],
+    [ACTOR_CATEGORIES.ANTAGONIST, state.language === "it" ? "Antagonista" : "Antagonist", "×"],
+    [ACTOR_CATEGORIES.BACKGROUND, state.language === "it" ? "Quartiere" : "Local", "·"]
+  ];
+  const buttons = roles.map(([category, role, glyph]) => {
+    const actor = getActorsForScene(scene.id, category)[0];
+    if (!actor) return "";
+    const active = actorDialogue?.actor?.id === actor.id;
+    return `<button class="${active ? "active" : ""}" data-story-actor="${actor.id}" title="${role}: ${actor.name}"><i>${glyph}</i><span><small>${role}</small><b>${actor.name}</b></span></button>`;
+  }).join("");
+  return `<section class="story-cast" aria-label="${state.language === "it" ? "Personaggi della zona" : "Local cast"}">${buttons}</section>`;
+}
+
+function renderActorDialogue() {
+  if (!actorDialogue) return "";
+  const { actor, response, loading } = actorDialogue;
+  const role = {
+    [ACTOR_CATEGORIES.QUEST_GIVER]: state.language === "it" ? "FORNITORE DI MISSIONE" : "QUEST GIVER",
+    [ACTOR_CATEGORIES.COMPANION]: state.language === "it" ? "COMPAGNO" : "COMPANION",
+    [ACTOR_CATEGORIES.ANTAGONIST]: state.language === "it" ? "ANTAGONISTA" : "ANTAGONIST",
+    [ACTOR_CATEGORIES.BACKGROUND]: state.language === "it" ? "VOCE DEL QUARTIERE" : "LOCAL VOICE"
+  }[actor.category];
+  return `<section class="actor-dialogue ${actor.category}" data-actor-dialogue>
+    <header><span><small>${role}</small><b>${actor.name}</b></span><button data-action="close-actor-dialogue" aria-label="Chiudi">×</button></header>
+    ${loading ? `<p class="dialogue-thinking">${state.language === "it" ? "Sta osservando la situazione..." : "Reading the situation..."}</p>` : `
+      <p>${response.line}</p>
+      <div>${response.choices.map((choice, index) => `<button data-dialogue-choice="${index}"><b>${choice}</b></button>`).join("")}</div>
+    `}
+  </section>`;
+}
+
+async function runStoryActor(actorId, playerChoice = null) {
+  const actor = getActor(actorId);
+  if (!actor || interactionBusy) return;
+  actorDialogue = { actor, loading: true, response: null };
+  render();
+  const npc = state.npcs.find((item) => item.id === state.activeNpc);
+  const faction = activeSimpleFaction();
+  const mode = actor.category === ACTOR_CATEGORIES.ANTAGONIST ? "conflict" : actor.category === ACTOR_CATEGORIES.QUEST_GIVER ? "missions" : actor.category === ACTOR_CATEGORIES.BACKGROUND ? "worldbuilding" : "emotion";
+  const response = await generateActorDialogue({
+    mode,
+    language: state.language,
+    sceneId: state.sceneId,
+    activeNpc: actor.id,
+    playerNpc: { id: npc.id, name: npc.name, trait: npc.trait },
+    faction: { id: faction.id, name: faction.name, relation: faction.relation, pressure: faction.pressure },
+    weather: state.weather,
+    score: state.pulseScore,
+    actionSequence: state.actionSequence,
+    recentActions: state.lastSimpleResult ? [state.lastSimpleResult] : [],
+    memory: state.actorMemories?.[actor.id] || [],
+    activeMission: state.activeMission,
+    playerProfile: state.playerProfile,
+    playerChoice
+  });
+  actorDialogue = { actor, loading: false, response };
+  render();
+}
+
+function chooseActorDialogue(index) {
+  if (!actorDialogue?.response) return;
+  const choice = actorDialogue.response.choices[index];
+  if (!choice) return;
+  const actor = actorDialogue.actor;
+  const response = actorDialogue.response;
+  state = applyStoryChoice(state, actor, response, choice, index, Date.now());
+  sound.ui("tab");
+  runStoryActor(actor.id, choice);
 }
 
 function renderActionExplanation(preview) {
   if (!preview) return "";
   const action = preview.action;
-  const sign = preview.delta > 0 ? "+1" : preview.delta < 0 ? "-1" : "0";
-  const status = state.language === "it"
-    ? { positive: "POSITIVO", neutral: "NEUTRO", negative: "NEGATIVO" }[preview.polarity]
-    : { positive: "POSITIVE", neutral: "NEUTRAL", negative: "NEGATIVE" }[preview.polarity];
   const goal = action.outcome.positive[state.language];
-  return `<span class="preview-sign ${preview.polarity}">${sign}</span><p><b>${action.label[state.language]}: ${goal}.</b><small>${preview.reason[state.language]} ${state.language === "it" ? "Esito previsto" : "Expected result"}: ${status}.</small></p>`;
+  return `<span class="preview-sign">?</span><p><b>${action.label[state.language]}: ${goal}.</b><small>${preview.reason[state.language]} ${state.language === "it" ? "L'esito si scopre dopo la scelta." : "The outcome is revealed after the choice."}</small></p>`;
 }
 
 function renderSimpleInfo(scene, faction) {
   if (state.activePanel === "closed") return "";
   let content = "";
   if (state.activePanel === "people") {
-    content = `<div class="simple-roster">${state.npcs.map((npc) => `<button data-roster-npc="${npc.id}" class="${npc.id === state.activeNpc ? "active" : ""}"><img src="${characterAssets[npc.id]}" alt=""><b>${npc.name}</b></button>`).join("")}</div>`;
+    content = `<div class="simple-roster">${state.npcs.map((npc) => `<button disabled class="${npc.id === state.activeNpc ? "active" : ""}" aria-label="${npc.name}"><img src="${characterAssets[npc.id]}" alt=""><b>${npc.name}</b></button>`).join("")}</div>`;
   } else if (state.activePanel === "districts") {
     content = `<div class="simple-faction"><img src="${factionAssets[faction.id]}" alt="${faction.name}"><div><small>${faction.archetype[state.language]}</small><h3>${faction.name}</h3><p>${faction.look[state.language]}</p></div></div>`;
   } else {
@@ -701,13 +798,23 @@ function formatSimpleTime(milliseconds) {
 }
 
 function startSimpleClock() {
-  if (state.phase !== "game" || !state.pendingSimpleAction) return;
+  if (state.phase !== "game" || !state.characterTurn || state.gameLost) return;
   const tick = () => {
-    if (!state.pendingSimpleAction) return;
-    const remaining = state.pendingSimpleAction.endsAt - Date.now();
+    if (!state.characterTurn || state.gameLost) {
+      window.clearInterval(simpleClock);
+      simpleClock = null;
+      return;
+    }
+    const remaining = state.characterTurn.endsAt - Date.now();
     const target = document.querySelector("[data-simple-clock]");
     if (target) target.textContent = formatSimpleTime(remaining);
-    if (remaining <= 0) setState(finishSimpleAction(state, Date.now()));
+    target?.closest(".turn-clock")?.classList.toggle("urgent", remaining <= 20000);
+    if (remaining <= 0) {
+      window.clearInterval(simpleClock);
+      simpleClock = null;
+      const next = advanceCharacterTurn(state, Date.now(), true);
+      if (next !== state) setState(next);
+    }
   };
   tick();
   simpleClock = window.setInterval(tick, 250);
@@ -1156,7 +1263,7 @@ function setInteractionBusy(next) {
   interactionBusy = next;
   if (next) hideRadialPreview();
   document.querySelector(".shell")?.classList.toggle("is-directing", next);
-  document.querySelectorAll("[data-npc-action], [data-crisis], [data-craft], [data-scene], [data-scene-select], [data-action='advance']")
+  document.querySelectorAll("[data-npc-action], [data-simple-action], [data-crisis], [data-craft], [data-scene], [data-scene-select], [data-action='advance']")
     .forEach((control) => { control.disabled = next; });
 }
 
@@ -1228,7 +1335,7 @@ function mountWorld() {
     scene,
     mode: state.phase,
     onSelect: (id) => {
-      if (interactionBusy || state.phase !== "game") return;
+      if (interactionBusy || state.phase !== "game" || id === state.activeNpc) return;
       worldRuntime?.snapshot();
       sound.ui();
       setState(selectNpc(state, id));
@@ -1278,17 +1385,23 @@ async function runNpcCommand(action) {
 }
 
 async function runSimpleCommand(actionId) {
-  if (interactionBusy || state.pendingSimpleAction || state.gameLost) return;
+  if (interactionBusy || state.gameLost) return;
+  if (!state.characterTurn || Date.now() >= state.characterTurn.endsAt) {
+    setState(advanceCharacterTurn(state, Date.now(), true));
+    return;
+  }
   const action = simpleActions.find((item) => item.id === actionId);
-  if (!action) return;
+  if (!action || state.characterTurn.usedActions?.includes(actionId)) return;
+  const preview = previewSimpleAction(state, actionId);
+  const sign = preview.delta > 0 ? "+1" : preview.delta < 0 ? "-1" : "0";
   setInteractionBusy(true);
   sound.action(action.kind);
   try {
-    await worldRuntime?.playNpcAction(action.kind, { language: state.language, impactText: action.label[state.language], success: true });
+    await worldRuntime?.playSimpleAction(action.id, { label: action.label[state.language], polarity: preview.polarity, score: sign });
   } finally {
     interactionBusy = false;
   }
-  setState(startSimpleAction(state, actionId, Date.now()));
+  setState(performSimpleAction(state, actionId, Date.now()));
 }
 
 async function runFactionResponse(response, factionId) {
@@ -1381,6 +1494,12 @@ function bindEvents() {
   document.querySelectorAll("[data-simple-action]").forEach((button) => {
     button.addEventListener("click", () => runSimpleCommand(button.dataset.simpleAction));
   });
+  document.querySelectorAll("[data-story-actor]").forEach((button) => {
+    button.addEventListener("click", () => runStoryActor(button.dataset.storyActor));
+  });
+  document.querySelectorAll("[data-dialogue-choice]").forEach((button) => {
+    button.addEventListener("click", () => chooseActorDialogue(Number(button.dataset.dialogueChoice)));
+  });
   document.querySelectorAll("[data-action-preview]").forEach((button) => {
     const showPreview = () => {
       const target = document.querySelector("[data-action-explanation]");
@@ -1471,7 +1590,7 @@ function bindEvents() {
 
 function handleAction(action) {
   if (action !== "advance") worldRuntime?.snapshot();
-  if (action !== "audio") sound.ui();
+  if (!["audio", "weather-audio"].includes(action)) sound.ui();
   if (action === "audio") {
     audioEnabled = !audioEnabled;
     localStorage.setItem("ts-audio", audioEnabled ? "on" : "off");
@@ -1481,6 +1600,13 @@ function handleAction(action) {
     } else {
       sound.stopAmbient();
     }
+    render();
+  }
+  if (action === "weather-audio") {
+    weatherAudioEnabled = !weatherAudioEnabled;
+    localStorage.setItem("ts-weather-audio", weatherAudioEnabled ? "on" : "off");
+    if (weatherAudioEnabled && audioEnabled) sound.syncAtmosphere(state.weather?.type);
+    else sound.stopWeather();
     render();
   }
   if (action === "menu") setState({ ...state, phase: "menu" });
@@ -1494,13 +1620,16 @@ function handleAction(action) {
     saveGame(state);
     render();
   }
+  if (action === "close-actor-dialogue") {
+    actorDialogue = null;
+    render();
+  }
   if (action === "play") setState({ ...state, phase: state.finished ? "menu" : "game" });
   if (action === "intro-next") setState({ ...state, introStep: Math.min(2, (Number(state.introStep) || 0) + 1) });
   if (action === "intro-back") setState({ ...state, introStep: Math.max(0, (Number(state.introStep) || 0) - 1) });
   if (action === "begin-game") {
     const next = { ...state, phase: "game", introStep: 2, introSeen: true };
-    saveGame(next);
-    setState(next);
+    setState(startCharacterTurn(next, Date.now()));
   }
   if (action === "continue") setState(loadGame() || state);
   if (action === "dashboard") setState({ ...state, activePanel: state.activePanel === "closed" ? "people" : "closed" });

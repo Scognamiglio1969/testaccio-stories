@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/game.test.js && node tests/world.test.js && node tests/ui.test.js"
+    "test": "node tests/game.test.js && node tests/world.test.js && node tests/ui.test.js && node tests/storyActors.test.js"
   }
 }

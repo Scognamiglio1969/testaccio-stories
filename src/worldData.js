@@ -179,6 +179,29 @@ export const actionPresentation = {
   }
 };
 
+export const simpleActionPresentation = {
+  listen: { anchor: "talk", effect: "speech", activity: "talking", color: "#79d58a" },
+  negotiate: { anchor: "trade", effect: "handoff", activity: "exchanging supplies", color: "#74c7cb" },
+  question: { anchor: "talk", effect: "scan", activity: "investigating", color: "#d9b45f" },
+  reassure: { anchor: "care", effect: "shield", activity: "talking", color: "#79d58a" },
+  provoke: { anchor: "defend", effect: "standoff", activity: "facing the delegation", color: "#d85b4b" },
+  patrol: { anchor: "scout", effect: "trail", activity: "watching the border", color: "#d9b45f" },
+  protect: { anchor: "defend", effect: "shield", activity: "holding the line", color: "#79d58a" },
+  challenge: { anchor: "defend", effect: "standoff", activity: "facing the delegation", color: "#d85b4b" },
+  chase: { anchor: "exit", effect: "trail", activity: "moving with purpose", color: "#f08a55" },
+  block: { anchor: "defend", effect: "barrier", activity: "taking position", color: "#d9b45f" },
+  photograph: { anchor: "scout", effect: "camera", activity: "investigating", color: "#f2eadf" },
+  follow: { anchor: "scout", effect: "trail", activity: "investigating", color: "#74c7cb" },
+  search: { anchor: "secret", effect: "scan", activity: "searching", color: "#d9b45f" },
+  infiltrate: { anchor: "secret", effect: "smoke", activity: "moving with purpose", color: "#9b8ac4" },
+  expose: { anchor: "gather", effect: "burst", activity: "talking", color: "#d85b4b" },
+  trade: { anchor: "trade", effect: "handoff", activity: "exchanging supplies", color: "#74c7cb" },
+  repair: { anchor: "care", effect: "sparks", activity: "crafting", color: "#d9b45f" },
+  deliver: { anchor: "trade", effect: "handoff", activity: "carrying materials", color: "#79d58a" },
+  gather: { anchor: "gather", effect: "rally", activity: "rallying", color: "#d9b45f" },
+  sabotage: { anchor: "secret", effect: "sparks", activity: "investigating", color: "#d85b4b" }
+};
+
 export const crisisPresentation = {
   defend: { mode: "barricade", color: "#d9b45f" },
   negotiate: { mode: "parley", color: "#74c7cb" },
