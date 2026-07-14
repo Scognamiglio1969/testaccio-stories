@@ -1,4 +1,4 @@
-import { actionPresentation, activityLabels, characterAssets, characterProfiles, crisisPresentation, factionVisuals, npcRoutineAnchor, sceneGraphs, sceneProfiles, sceneTransitionContract } from "./worldData.js";
+import { actionPresentation, activityLabels, characterAssets, characterProfiles, crisisPresentation, factionAssets, factionVisuals, npcRoutineAnchor, sceneGraphs, sceneProfiles, sceneTransitionContract } from "./worldData.js";
 import { hydrateWorldState, setAgentDestination } from "./worldState.js";
 import { scenes } from "./gameData.js";
 
@@ -139,7 +139,8 @@ export class WorldRuntime {
     this.resize();
     const backgroundPromise = this.loadImage(`scene:${this.scene.id}`, this.scene.image);
     const characterPromises = Object.entries(characterAssets).map(([id, source]) => this.loadImage(`character:${id}`, source));
-    await Promise.allSettled([backgroundPromise, ...characterPromises]);
+    const factionPromises = Object.entries(factionAssets).map(([id, source]) => this.loadImage(`faction:${id}`, source));
+    await Promise.allSettled([backgroundPromise, ...characterPromises, ...factionPromises]);
     if (this.destroyed) return;
     this.refreshAmbientFactionPresence();
     this.nextRoutineAt = performance.now() + 900;
@@ -249,7 +250,9 @@ export class WorldRuntime {
   }
 
   visibleAgents() {
-    return Object.values(this.world.agents).filter((agent) => agent.sceneId === this.scene.id);
+    const local = Object.values(this.world.agents).filter((agent) => agent.sceneId === this.scene.id);
+    if (this.mode === "game") return local.filter((agent) => agent.id === this.activeId);
+    return local;
   }
 
   agentMetrics(agent) {
@@ -375,7 +378,6 @@ export class WorldRuntime {
     const agents = this.visibleAgents();
     if (!agents.length) return;
     this.routineCycle += 1;
-    this.refreshAmbientFactionPresence();
     const anchors = ["talk", "defend", "scout", "gather", "care", "trade"];
     agents.forEach((agent, index) => {
       const npc = this.state.npcs.find((item) => item.id === agent.id);
@@ -422,6 +424,11 @@ export class WorldRuntime {
     const crisisPresence = existing.find((presence) => presence.sceneId === sceneId && presence.kind !== "ambient" && presence.stance !== "retreating");
     if (crisisPresence) {
       this.world.factionPresence = [...otherScenes, crisisPresence].slice(-8);
+      return;
+    }
+    const ambientPresence = existing.find((presence) => presence.sceneId === sceneId && presence.kind === "ambient" && presence.stance !== "retreating");
+    if (ambientPresence) {
+      this.world.factionPresence = [...otherScenes, ambientPresence].slice(-8);
       return;
     }
     const cooldowns = new Set((this.world.props || [])
@@ -778,27 +785,19 @@ export class WorldRuntime {
       const anchor = graph.nodes[anchorId] || graph.nodes.gate || graph.nodes.east || Object.values(graph.nodes)[0];
       const baseX = presence.kind === "ambient" ? anchor.x * this.width : presence.visualX * this.width;
       const baseY = anchor.y * this.height + (presence.slot || 0) * 10;
-      const memberIds = ["nando", "ruggero", "leila", "marta", "ilaria"];
       const leadMetrics = this.visibleAgents()[0] ? this.agentMetrics(this.visibleAgents()[0]) : { height: 124 };
-      const height = Math.max(118, leadMetrics.height);
-      const spacing = Math.max(64, height * 0.56);
-      const direction = anchor.x > 0.5 ? -1 : 1;
-      for (let index = 0; index < presence.members; index += 1) {
-        const image = this.tintedCharacter(memberIds[index % memberIds.length], visual.color);
-        if (!image) continue;
-        const x = clamp(baseX + direction * index * spacing, height * 0.3, this.width - height * 0.3);
-        const y = baseY;
+      const height = Math.max(150, leadMetrics.height * 1.16);
+      const image = this.images.get(`faction:${presence.factionId}`);
+      if (image) {
         const width = height * (image.width / image.height);
+        const x = clamp(baseX, width * 0.48, this.width - width * 0.48);
         context.save();
         context.globalAlpha = presence.stance === "retreating" ? 0.66 : 0.97;
         context.fillStyle = "rgba(0,0,0,0.42)";
         context.beginPath();
-        context.ellipse(x, y + 4, width * 0.35, 8, 0, 0, Math.PI * 2);
+        context.ellipse(x, baseY + 4, width * 0.34, 9, 0, 0, Math.PI * 2);
         context.fill();
-        context.drawImage(image, x - width / 2, y - height, width, height);
-        context.globalAlpha = 0.9;
-        context.fillStyle = visual.color;
-        context.fillRect(x - width * 0.28, y - height * 0.46, width * 0.56, 5);
+        context.drawImage(image, x - width / 2, baseY - height, width, height);
         context.restore();
       }
       const role = presence.factionId === "trullo" ? "banda" : presence.stance === "hostile" ? "pattuglia" : "delegazione";
@@ -892,7 +891,7 @@ export class WorldRuntime {
       this.effects.push({ type: "footfall", x: agent.x, y: agent.y + 0.012, startedAt: time, duration: 260, color: "rgba(225,214,184,0.3)" });
     }
 
-    if (selected || hovered) this.drawAgentLabel(context, agent, metrics, hovered, focusScale);
+    if (hovered || (selected && this.mode !== "game")) this.drawAgentLabel(context, agent, metrics, hovered, focusScale);
   }
 
   drawAgentLabel(context, agent, metrics, expanded, visualScale = 1) {

@@ -297,6 +297,7 @@ export const factions = [
       it: "Ti assomigliano troppo: possono coprirti le spalle o colpirti dove fa piu male.",
       en: "Too much like you: they can cover your back or hit where it hurts."
     },
+    look: { it: "Vintage romano, bomber, sciarpe e denim consumato.", en: "Roman vintage, bombers, scarves, and worn denim." },
     relation: 8,
     pressure: 38,
     color: "#d7a45e"
@@ -309,6 +310,7 @@ export const factions = [
       it: "Parlano di principi, assemblee e purezza. Aiutano solo se la storia sembra giusta.",
       en: "They speak in principles, assemblies, and purity. They help only if the story feels right."
     },
+    look: { it: "Cappotti scuri, dolcevita, occhiali tondi e borse di tela.", en: "Dark coats, turtlenecks, round glasses, and canvas bags." },
     relation: -4,
     pressure: 44,
     color: "#b65fd9"
@@ -321,6 +323,7 @@ export const factions = [
       it: "Rapidi, pratici, territoriali. Rispetto e paura viaggiano insieme.",
       en: "Fast, practical, territorial. Respect and fear travel together."
     },
+    look: { it: "Felpe, cargo, giacche da lavoro e dettagli rossi.", en: "Hoodies, cargo trousers, work jackets, and red details." },
     relation: -18,
     pressure: 62,
     color: "#d95d50"
@@ -333,6 +336,7 @@ export const factions = [
       it: "Reti, collettivi, rabbia organizzata. Possono portare piazza o incendio.",
       en: "Networks, collectives, organized anger. They can bring a crowd or a fire."
     },
+    look: { it: "Streetwear pratico, giacche rosse, megafoni e scarpe vissute.", en: "Practical streetwear, red jackets, megaphones, and worn shoes." },
     relation: 2,
     pressure: 50,
     color: "#cf3f37"
@@ -345,10 +349,34 @@ export const factions = [
       it: "Soldi, accessi, sorrisi puliti. Ti comprano prima di dichiararsi nemici.",
       en: "Money, access, clean smiles. They buy you before calling themselves enemies."
     },
+    look: { it: "Camicia bianca, pantaloni blu, orologi d'oro e occhiali scuri.", en: "White shirts, navy trousers, gold watches, and dark sunglasses." },
     relation: -10,
     pressure: 36,
     color: "#6fb8c4"
   }
+];
+
+export const simpleActions = [
+  { id: "listen", category: "social", kind: "talk", label: { it: "Ascolta", en: "Listen" }, outcome: { positive: { it: "la voce giusta consegna un nome", en: "the right voice gives up a name" }, neutral: { it: "le versioni restano in equilibrio", en: "the stories remain balanced" }, negative: { it: "una confidenza diventa sospetto", en: "a confidence becomes suspicion" } } },
+  { id: "negotiate", category: "social", kind: "talk", label: { it: "Negozia", en: "Negotiate" }, outcome: { positive: { it: "il gruppo rivale accetta il patto", en: "the rival group accepts the pact" }, neutral: { it: "la trattativa resta aperta", en: "the negotiation stays open" }, negative: { it: "la controparte alza il prezzo", en: "the other side raises the price" } } },
+  { id: "question", category: "social", kind: "secret", label: { it: "Interroga", en: "Question" }, outcome: { positive: { it: "una contraddizione rivela il piano", en: "a contradiction reveals the plan" }, neutral: { it: "nessuno cede abbastanza", en: "nobody gives enough away" }, negative: { it: "la domanda allerta il bersaglio", en: "the question alerts the target" } } },
+  { id: "reassure", category: "social", kind: "talk", label: { it: "Rassicura", en: "Reassure" }, outcome: { positive: { it: "la paura lascia spazio alla fiducia", en: "fear gives way to trust" }, neutral: { it: "la tensione non cambia", en: "the tension does not change" }, negative: { it: "la promessa suona falsa", en: "the promise sounds false" } } },
+  { id: "provoke", category: "social", kind: "recruit", risk: 2, label: { it: "Provoca", en: "Provoke" }, outcome: { positive: { it: "il rivale perde il controllo e si espone", en: "the rival loses control and exposes themselves" }, neutral: { it: "la sfida resta senza risposta", en: "the challenge goes unanswered" }, negative: { it: "la strada si schiera contro Testaccio", en: "the street turns against Testaccio" } } },
+  { id: "patrol", category: "street", kind: "recruit", label: { it: "Pattuglia", en: "Patrol" }, outcome: { positive: { it: "il passaggio torna sotto controllo", en: "the route returns under control" }, neutral: { it: "il confine resta immobile", en: "the border stays still" }, negative: { it: "la pattuglia viene aggirata", en: "the patrol is bypassed" } } },
+  { id: "protect", category: "street", kind: "recruit", label: { it: "Proteggi", en: "Protect" }, outcome: { positive: { it: "una persona arriva al sicuro", en: "someone reaches safety" }, neutral: { it: "la minaccia si ferma a distanza", en: "the threat keeps its distance" }, negative: { it: "il presidio lascia scoperta un'altra via", en: "the watch leaves another route exposed" } } },
+  { id: "challenge", category: "street", kind: "recruit", risk: 1, label: { it: "Sfida", en: "Challenge" }, outcome: { positive: { it: "il rivale arretra davanti a tutti", en: "the rival backs down in public" }, neutral: { it: "nessuno conquista terreno", en: "neither side gains ground" }, negative: { it: "la sfida accende il quartiere", en: "the challenge ignites the district" } } },
+  { id: "chase", category: "street", kind: "recruit", risk: 2, label: { it: "Insegui", en: "Chase" }, outcome: { positive: { it: "la fuga conduce al nascondiglio", en: "the chase leads to the hideout" }, neutral: { it: "le tracce si perdono al confine", en: "the trail dies at the border" }, negative: { it: "l'inseguimento finisce in un'imboscata", en: "the chase ends in an ambush" } } },
+  { id: "block", category: "street", kind: "recruit", label: { it: "Blocca", en: "Block" }, outcome: { positive: { it: "l'accesso rivale viene chiuso", en: "the rival access is sealed" }, neutral: { it: "il blocco rallenta entrambi", en: "the blockade slows both sides" }, negative: { it: "i rivali aprono un varco altrove", en: "the rivals open another breach" } } },
+  { id: "photograph", category: "intel", kind: "secret", label: { it: "Fotografa", en: "Photograph" }, outcome: { positive: { it: "lo scatto fissa una prova decisiva", en: "the shot captures decisive proof" }, neutral: { it: "l'immagine non dimostra abbastanza", en: "the image proves too little" }, negative: { it: "il flash rivela la posizione", en: "the flash reveals the position" } } },
+  { id: "follow", category: "intel", kind: "secret", label: { it: "Segui", en: "Follow" }, outcome: { positive: { it: "il bersaglio porta al contatto", en: "the target leads to the contact" }, neutral: { it: "il pedinamento non produce nulla", en: "the tail produces nothing" }, negative: { it: "il bersaglio scopre di essere seguito", en: "the target spots the tail" } } },
+  { id: "search", category: "intel", kind: "secret", label: { it: "Cerca", en: "Search" }, outcome: { positive: { it: "il luogo restituisce un indizio", en: "the place yields a clue" }, neutral: { it: "restano soltanto vecchie tracce", en: "only old traces remain" }, negative: { it: "la ricerca cancella una prova", en: "the search destroys evidence" } } },
+  { id: "infiltrate", category: "intel", kind: "secret", risk: 2, label: { it: "Infiltrati", en: "Infiltrate" }, outcome: { positive: { it: "il piano nemico viene copiato", en: "the enemy plan is copied" }, neutral: { it: "l'accesso si chiude senza allarme", en: "the access closes without alarm" }, negative: { it: "l'identita viene scoperta", en: "the identity is exposed" } } },
+  { id: "expose", category: "intel", kind: "secret", risk: 1, label: { it: "Smaschera", en: "Expose" }, outcome: { positive: { it: "la bugia crolla in pubblico", en: "the lie collapses in public" }, neutral: { it: "la prova divide chi ascolta", en: "the proof divides the crowd" }, negative: { it: "l'accusa si ritorce sul gruppo", en: "the accusation turns on the group" } } },
+  { id: "trade", category: "field", kind: "trade", label: { it: "Scambia", en: "Trade" }, outcome: { positive: { it: "lo scambio porta un vantaggio pulito", en: "the trade brings a clean advantage" }, neutral: { it: "ognuno riprende cio che aveva", en: "everyone takes back what they had" }, negative: { it: "il prezzo vero emerge troppo tardi", en: "the real price appears too late" } } },
+  { id: "repair", category: "field", kind: "trade", label: { it: "Ripara", en: "Repair" }, outcome: { positive: { it: "il punto debole torna operativo", en: "the weak point works again" }, neutral: { it: "la riparazione regge per ora", en: "the repair holds for now" }, negative: { it: "il guasto diventa visibile ai rivali", en: "the fault becomes visible to rivals" } } },
+  { id: "deliver", category: "field", kind: "trade", label: { it: "Consegna", en: "Deliver" }, outcome: { positive: { it: "il pacco arriva senza lasciare tracce", en: "the package arrives without a trace" }, neutral: { it: "la consegna arriva in ritardo", en: "the delivery arrives late" }, negative: { it: "il pacco viene intercettato", en: "the package is intercepted" } } },
+  { id: "gather", category: "field", kind: "trade", label: { it: "Recupera", en: "Recover" }, outcome: { positive: { it: "il gruppo recupera cio che serviva", en: "the group recovers what it needed" }, neutral: { it: "il bottino copre appena il rischio", en: "the haul barely covers the risk" }, negative: { it: "la riserva era una trappola", en: "the cache was a trap" } } },
+  { id: "sabotage", category: "field", kind: "secret", risk: 2, label: { it: "Sabota", en: "Sabotage" }, outcome: { positive: { it: "il piano rivale si ferma", en: "the rival plan stops" }, neutral: { it: "il danno viene riparato subito", en: "the damage is repaired at once" }, negative: { it: "il sabotaggio viene attribuito a Testaccio", en: "the sabotage is traced to Testaccio" } } }
 ];
 
 export const npcs = [

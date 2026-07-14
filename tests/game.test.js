@@ -9,8 +9,12 @@ import {
   getSceneObjective,
   loadGame,
   npcAction,
-  resolveCrisis
+  resolveCrisis,
+  startSimpleAction,
+  finishSimpleAction,
+  SIMPLE_ACTION_DURATION
 } from "../src/engine.js";
+import { simpleActions } from "../src/gameData.js";
 
 global.localStorage = {
   data: new Map(),
@@ -137,5 +141,18 @@ localStorage.setItem("mdq-save", JSON.stringify(legacy));
 const migrated = loadGame();
 assert.equal(Object.keys(migrated.world.agents).length, 6);
 assert.deepEqual(migrated.turn, { max: 4, spent: 0, usedByNpc: {}, sceneProgress: {}, lastResult: null });
+
+assert.equal(simpleActions.length, 20);
+const simpleStart = 1000;
+let focus = createGame("it", "Focus");
+focus.phase = "game";
+focus = startSimpleAction(focus, "listen", simpleStart);
+assert.equal(focus.pendingSimpleAction.endsAt, simpleStart + SIMPLE_ACTION_DURATION);
+assert.equal(finishSimpleAction(focus, simpleStart + 1000), focus);
+focus = finishSimpleAction(focus, simpleStart + SIMPLE_ACTION_DURATION);
+assert.equal(focus.pendingSimpleAction, null);
+assert.ok(["negative", "neutral", "positive"].includes(focus.lastSimpleResult.polarity));
+assert.equal(focus.activeNpc, "nando");
+assert.equal(Object.keys(focus.lastSimpleResult.text).length, 2);
 
 console.log("Game systems smoke test passed.");

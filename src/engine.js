@@ -1,4 +1,4 @@
-import { MAX_DAY, badges, crises, factions, leaderboardSeed, metrics, npcs, resources, scenes } from "./gameData.js";
+import { MAX_DAY, badges, crises, factions, leaderboardSeed, metrics, npcs, resources, scenes, simpleActions } from "./gameData.js";
 import {
   createWorldState,
   evolveWorldForAction,
@@ -92,7 +92,12 @@ export function createGame(language = "it", player = "Ospite") {
     score: 0,
     ending: null,
     badges: [],
-    feedback: ""
+    feedback: "",
+    pulseScore: 0,
+    pendingSimpleAction: null,
+    lastSimpleResult: null,
+    actionSequence: 0,
+    gameLost: false
   };
 }
 
@@ -107,6 +112,11 @@ export function loadGame() {
 
 function hydrateSave(saved) {
   const next = { ...saved };
+  next.pulseScore = Math.max(-3, Math.min(3, Number(saved.pulseScore) || 0));
+  next.pendingSimpleAction = saved.pendingSimpleAction || null;
+  next.lastSimpleResult = saved.lastSimpleResult || null;
+  next.actionSequence = Number(saved.actionSequence) || 0;
+  next.gameLost = saved.gameLost === true;
   next.introSeen = saved.introSeen === true;
   next.sceneId = next.sceneId || "piazza";
   next.movement = Number(next.movement) || 0;
@@ -152,6 +162,67 @@ function hydrateSave(saved) {
     next.sceneId = activeScene;
     next.world.sceneId = activeScene;
   }
+  return next;
+}
+
+export const SIMPLE_ACTION_DURATION = 120000;
+
+export function startSimpleAction(state, actionId, now = Date.now()) {
+  if (state.pendingSimpleAction || state.gameLost) return state;
+  const action = simpleActions.find((item) => item.id === actionId);
+  const npc = state.npcs.find((item) => item.id === state.activeNpc);
+  if (!action || !npc) return state;
+  const next = copy(state);
+  next.pendingSimpleAction = {
+    id: action.id,
+    npcId: npc.id,
+    startedAt: now,
+    endsAt: now + SIMPLE_ACTION_DURATION
+  };
+  next.lastSimpleResult = null;
+  next.world = evolveWorldForAction(next.world, action.kind, npc.id, next.npcs, next.sceneId, next.day);
+  saveGame(next);
+  return next;
+}
+
+export function finishSimpleAction(state, now = Date.now()) {
+  const pending = state.pendingSimpleAction;
+  if (!pending || now < pending.endsAt) return state;
+  const action = simpleActions.find((item) => item.id === pending.id);
+  const npc = state.npcs.find((item) => item.id === pending.npcId);
+  if (!action || !npc) return state;
+  const next = copy(state);
+  const scene = scenes.find((item) => item.id === next.sceneId) || scenes[0];
+  const aptitude = Number(npc.aptitudes?.[action.kind]) || 0;
+  const placeBonus = scene.favoredAction === action.kind ? 2 : 0;
+  const variation = ((next.actionSequence + action.id.length + npc.id.length + scene.id.length) % 5) - 2;
+  const performance = aptitude + placeBonus + variation - (Number(action.risk) || 0);
+  const polarity = performance >= 6 ? "positive" : performance >= 3 ? "neutral" : "negative";
+  const delta = polarity === "positive" ? 1 : polarity === "negative" ? -1 : 0;
+  next.pulseScore = Math.max(-3, Math.min(3, next.pulseScore + delta));
+  next.gameLost = next.pulseScore <= -3;
+  next.lastSimpleResult = {
+    polarity,
+    delta,
+    text: {
+      it: `${npc.name}: ${action.outcome[polarity].it}.`,
+      en: `${npc.name}: ${action.outcome[polarity].en}.`
+    },
+    at: now
+  };
+  next.pendingSimpleAction = null;
+  next.actionSequence += 1;
+  if (!next.gameLost) {
+    const currentIndex = next.npcs.findIndex((item) => item.id === npc.id);
+    const nextNpc = next.npcs[(currentIndex + 1) % next.npcs.length];
+    next.activeNpc = nextNpc.id;
+    const nextScene = next.world?.agents?.[nextNpc.id]?.sceneId;
+    if (nextScene && scenes.some((item) => item.id === nextScene)) {
+      next.sceneId = nextScene;
+      next.world.sceneId = nextScene;
+    }
+  }
+  saveGame(next);
   return next;
 }
 

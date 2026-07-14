@@ -30,6 +30,14 @@ export const characterAssets = {
   nina: "./assets/characters/nina-alpha.png"
 };
 
+export const factionAssets = {
+  trastevere: "./assets/factions/trastevere-group-alpha.png",
+  centro: "./assets/factions/centro-group-alpha.png",
+  trullo: "./assets/factions/trullo-group-alpha.png",
+  romaest: "./assets/factions/romaest-group-alpha.png",
+  romanord: "./assets/factions/romanord-group-alpha.png"
+};
+
 export const characterProfiles = {
   marta: { footCrop: 0 },
   nando: { footCrop: 0 },

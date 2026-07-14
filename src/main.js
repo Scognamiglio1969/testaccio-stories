@@ -1,5 +1,5 @@
-import { badges, scenes, strings } from "./gameData.js";
-import { activityLabels, characterAssets } from "./worldData.js";
+import { badges, scenes, simpleActions, strings } from "./gameData.js";
+import { activityLabels, characterAssets, factionAssets } from "./worldData.js";
 import { WorldRuntime } from "./worldRuntime.js";
 import {
   advanceDay,
@@ -21,7 +21,9 @@ import {
   respondToFaction,
   resolveCrisis,
   saveGame,
-  selectNpc
+  selectNpc,
+  startSimpleAction,
+  finishSimpleAction
 } from "./engine.js";
 
 const app = document.querySelector("#app");
@@ -34,6 +36,8 @@ let sceneBeat = null;
 let highlightedFactionSequence = null;
 let factionHighlightTimer = null;
 let pendingHighRiskAction = null;
+let simpleClock = null;
+let actionCategory = "social";
 
 app.addEventListener("click", (event) => {
   const close = event.target.closest("[data-action='dismiss-world-beat']");
@@ -343,6 +347,7 @@ function isHighRisk(forecast, action) {
 }
 
 function render() {
+  window.clearInterval(simpleClock);
   worldRuntime?.destroy();
   worldRuntime = null;
   app.innerHTML = `
@@ -358,6 +363,7 @@ function render() {
   `;
   bindEvents();
   mountWorld();
+  startSimpleClock();
   scheduleFactionHighlightClear();
 }
 
@@ -398,7 +404,7 @@ function renderMenu() {
         <p class="kicker">Social horror isometrico per laptop</p>
         <h1>Testaccio Stories</h1>
         <p>
-          Un rione contemporaneo resiste a fame, voci, paura e invasioni. Cinque persone ricordano ogni scelta.
+          Un rione contemporaneo resiste a pressioni, voci e invasioni. Sei ragazzi cambiano il suo destino.
         </p>
         <form class="login-card" data-form="login">
           <label>${t("login")}</label>
@@ -450,21 +456,21 @@ function renderIntro() {
   const chapters = [
     {
       eyebrow: "La storia",
-      title: "Testaccio ha otto notti per non spezzarsi.",
-      body: "I quartieri vicini avanzano con offerte, pressioni e bande. Nel rione fame, paura e vecchi segreti dividono le persone. Teo, Edo, Jack, Marta, Miranda e Nina sono gli unici che possono tenere insieme la comunità.",
-      points: ["Ogni personaggio vive in una zona diversa.", "Le relazioni tra quartieri cambiano dopo ogni scelta.", "Le persone ricordano promesse, tradimenti e assenze."]
+      title: "Testaccio rischia di spezzarsi.",
+      body: "Trastevere, Centro Storico, Trullo, Roma Est e Roma Nord entrano nel rione con patti, pressioni e sfide. Teo, Edo, Jack, Marta, Miranda e Nina devono rispondere.",
+      points: ["Ogni luogo crea opportunita diverse.", "Un solo quartiere rivale entra in scena.", "Una scelta puo salvare o indebolire Testaccio."]
     },
     {
       eyebrow: "Come si gioca",
-      title: "Quattro mosse ogni notte. Nessuna scelta è gratuita.",
-      body: "Scegli una zona, trova il personaggio adatto e affidagli un'azione. Ascoltare crea fiducia e informazioni; radunare aumenta la difesa; scambiare procura cibo; scavare nei segreti può cambiare tutto.",
-      points: ["Passa sul personaggio per riconoscerlo; clicca per selezionarlo.", "Leggi effetto e rischio prima di confermare.", "Chiudi la notte solo quando hai usato bene le mosse."]
+      title: "Un personaggio. Due minuti. Una conseguenza.",
+      body: "Scegli una delle venti azioni. Il personaggio la esegue nella scena; allo scadere del timer leggi l'esito e passa automaticamente al ragazzo successivo.",
+      points: ["Cinque azioni alla volta, divise in quattro gruppi.", "Ogni esito e positivo, neutro o negativo.", "Personaggio e luogo cambiano a ogni turno."]
     },
     {
       eyebrow: "Il tuo obiettivo",
-      title: "Arriva all'alba dell'ottava notte con il rione ancora vivo.",
-      body: "Risolvi gli incidenti locali e proteggi salute, stabilità, fiducia e difesa. Non devi vincere ogni scontro: devi capire cosa salvare e quale quartiere può diventare alleato.",
-      points: ["Vinci mantenendo il rione unito fino alla notte 8.", "Perdi se le risorse vitali collassano o la comunità soccombe.", "Tre finali dipendono da alleanze, segreti e modo in cui hai governato."]
+      title: "Non lasciare che l'indicatore crolli.",
+      body: "Esiste un solo punteggio: negativo, neutro o positivo. Le azioni adatte al personaggio e al luogo hanno piu possibilita di riuscire; quelle rischiose possono cambiare tutto.",
+      points: ["Tre esiti negativi cumulativi fanno perdere.", "Un esito positivo riporta il rione verso l'equilibrio.", "Il risultato e sempre mostrato in una sola frase."]
     }
   ];
   const chapter = chapters[step];
@@ -489,32 +495,102 @@ function renderIntro() {
 
 function renderGame() {
   const npc = state.npcs.find((item) => item.id === state.activeNpc);
-  const objective = safeSceneObjective();
-  const turn = turnState();
-  const target = Math.max(1, Number(objective.target ?? objective.max ?? 100));
-  const progress = Math.max(0, Math.min(target, Number(objective.progress ?? turn.progress)));
+  const scene = getScene(state);
+  const faction = activeSimpleFaction();
+  const pending = state.pendingSimpleAction;
+  const result = state.lastSimpleResult;
   return `
-    <section class="game-screen cinematic-game">
-      ${renderStatusRibbon()}
-      <div class="command-layout">
-        <section class="map-stage" aria-label="${t("map")}">
+    <section class="simple-game ${state.gameLost ? "game-lost" : ""}">
+      <div class="simple-layout">
+        <section class="simple-stage" aria-label="${scene.name[state.language]}">
           <div class="world-mount" data-world-mount></div>
           <div class="world-loading" data-world-loading><i></i><span>${state.language === "it" ? "Il rione si sveglia" : "The district wakes"}</span></div>
-          <div class="map-skyline"></div>
-          <header class="scene-director">
-            <span><small>${getScene(state).name[state.language]} · ${state.language === "it" ? "incidente" : "incident"}</small><strong>${localized(objective.title ?? objective.incident, nextThreat())}</strong></span>
-            <p>${localized(getScene(state).front, missionText())}</p>
-            <div class="director-progress" aria-label="${progress} su ${target}"><i style="--value:${progress / target * 100}%"></i><b>${progress}/${target}</b></div>
+          <header class="simple-hud">
+            <div class="place-title"><small>${state.language === "it" ? "LUOGO" : "PLACE"}</small><strong>${scene.name[state.language]}</strong></div>
+            ${renderPulseScore()}
+            <div class="turn-clock ${pending ? "running" : ""}"><small>${pending ? (state.language === "it" ? "AZIONE IN CORSO" : "ACTION RUNNING") : (state.language === "it" ? "TOCCA A" : "TURN")}</small><strong data-simple-clock>${pending ? formatSimpleTime(pending.endsAt - Date.now()) : npc.name}</strong></div>
           </header>
-          <div class="scene-switcher">${renderSceneButtons()}</div>
-          ${renderWorldInspector()}
-          ${renderWorldBeat()}
-          <div class="scene-prompt"><span>${state.language === "it" ? "PROSSIMA MOSSA" : "NEXT MOVE"}</span><b>${nextMoveCopy(npc, objective)}</b></div>
+          <nav class="info-tabs" aria-label="Informazioni">
+            <button data-simple-panel="people" title="Personaggi" aria-label="Personaggi">P</button>
+            <button data-simple-panel="districts" title="Quartieri" aria-label="Quartieri">Q</button>
+            <button data-simple-panel="place" title="Luogo" aria-label="Luogo">L</button>
+          </nav>
+          ${renderSimpleInfo(scene, faction)}
+          ${result ? `<div class="simple-result ${result.polarity}" data-simple-result><b>${result.polarity === "positive" ? "+" : result.polarity === "negative" ? "-" : "="}</b><span>${result.text[state.language]}</span><button data-action="dismiss-simple-result" aria-label="Chiudi">x</button></div>` : ""}
+          ${state.gameLost ? `<div class="loss-screen"><small>TESTACCIO CEDE</small><h1>${state.language === "it" ? "Il rione si e spezzato." : "The district has broken."}</h1><button class="primary" data-action="new">${state.language === "it" ? "Ricomincia" : "Restart"}</button></div>` : ""}
+          ${renderSimpleActions(npc, pending)}
         </section>
-        ${renderCommandRail(npc)}
+        ${renderSimpleCharacter(npc, pending, faction)}
       </div>
     </section>
   `;
+}
+
+function activeSimpleFaction() {
+  const presence = (state.world?.factionPresence || []).find((item) => item.sceneId === state.sceneId && item.stance !== "retreating");
+  return state.factions.find((item) => item.id === presence?.factionId) || state.factions[state.actionSequence % state.factions.length];
+}
+
+function renderPulseScore() {
+  const polarity = state.pulseScore > 0 ? "positive" : state.pulseScore < 0 ? "negative" : "neutral";
+  const names = state.language === "it" ? { negative: "NEGATIVO", neutral: "NEUTRO", positive: "POSITIVO" } : { negative: "NEGATIVE", neutral: "NEUTRAL", positive: "POSITIVE" };
+  return `<div class="pulse-score ${polarity}" aria-label="${names[polarity]}"><i></i><i></i><i></i><strong>${names[polarity]}</strong></div>`;
+}
+
+function renderSimpleCharacter(npc, pending, faction) {
+  const pendingAction = simpleActions.find((item) => item.id === pending?.id);
+  return `
+    <aside class="hero-character" style="--npc-color:${npc.color}">
+      <div class="hero-character-name"><small>${pending ? (state.language === "it" ? "STA ESEGUENDO" : "PERFORMING") : (state.language === "it" ? "ORA TOCCA A" : "NOW PLAYING")}</small><h2>${npc.name}</h2>${pendingAction ? `<b>${pendingAction.label[state.language]}</b>` : `<b>${npc.trait}</b>`}</div>
+      <img src="${characterAssets[npc.id]}" alt="${npc.name}" draggable="false">
+      <footer><span>${npc.specialties.slice(0, 2).map((item) => item[state.language]).join(" · ")}</span><small>${faction.name} ${state.language === "it" ? "e in zona" : "is nearby"}</small></footer>
+    </aside>`;
+}
+
+function renderSimpleActions(npc, pending) {
+  const categories = {
+    social: state.language === "it" ? "Sociale" : "Social",
+    street: state.language === "it" ? "Strada" : "Street",
+    intel: state.language === "it" ? "Indagine" : "Intel",
+    field: state.language === "it" ? "Operativa" : "Field"
+  };
+  const actions = simpleActions.filter((item) => item.category === actionCategory);
+  return `
+    <section class="simple-actions ${pending ? "waiting" : ""}" aria-label="20 azioni di ${npc.name}">
+      <div class="action-categories">${Object.entries(categories).map(([id, name]) => `<button class="${id === actionCategory ? "active" : ""}" data-action-category="${id}" ${pending ? "disabled" : ""}>${name}</button>`).join("")}</div>
+      <div class="action-five">${actions.map((action, index) => `<button data-simple-action="${action.id}" ${pending ? "disabled" : ""}><small>${String(index + 1).padStart(2, "0")}</small><b>${action.label[state.language]}</b><span>${action.risk ? (state.language === "it" ? "rischio" : "risk") : ""}</span></button>`).join("")}</div>
+    </section>`;
+}
+
+function renderSimpleInfo(scene, faction) {
+  if (state.activePanel === "closed") return "";
+  let content = "";
+  if (state.activePanel === "people") {
+    content = `<div class="simple-roster">${state.npcs.map((npc) => `<button data-roster-npc="${npc.id}" class="${npc.id === state.activeNpc ? "active" : ""}"><img src="${characterAssets[npc.id]}" alt=""><b>${npc.name}</b></button>`).join("")}</div>`;
+  } else if (state.activePanel === "districts") {
+    content = `<div class="simple-faction"><img src="${factionAssets[faction.id]}" alt="${faction.name}"><div><small>${faction.archetype[state.language]}</small><h3>${faction.name}</h3><p>${faction.look[state.language]}</p></div></div>`;
+  } else {
+    content = `<div class="simple-place"><small>${scene.anchor[state.language]}</small><h3>${scene.name[state.language]}</h3><p>${scene.rule[state.language]}</p><b>${scene.incident[state.language]}</b></div>`;
+  }
+  return `<aside class="simple-info"><button class="simple-info-close" data-simple-panel="closed" aria-label="Chiudi">x</button>${content}</aside>`;
+}
+
+function formatSimpleTime(milliseconds) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function startSimpleClock() {
+  if (state.phase !== "game" || !state.pendingSimpleAction) return;
+  const tick = () => {
+    if (!state.pendingSimpleAction) return;
+    const remaining = state.pendingSimpleAction.endsAt - Date.now();
+    const target = document.querySelector("[data-simple-clock]");
+    if (target) target.textContent = formatSimpleTime(remaining);
+    if (remaining <= 0) setState(finishSimpleAction(state, Date.now()));
+  };
+  tick();
+  simpleClock = window.setInterval(tick, 250);
 }
 
 function nextMoveCopy(npc, objective) {
@@ -1081,6 +1157,20 @@ async function runNpcCommand(action) {
   }
 }
 
+async function runSimpleCommand(actionId) {
+  if (interactionBusy || state.pendingSimpleAction || state.gameLost) return;
+  const action = simpleActions.find((item) => item.id === actionId);
+  if (!action) return;
+  setInteractionBusy(true);
+  sound.action(action.kind);
+  try {
+    await worldRuntime?.playNpcAction(action.kind, { language: state.language, impactText: action.label[state.language], success: true });
+  } finally {
+    interactionBusy = false;
+  }
+  setState(startSimpleAction(state, actionId, Date.now()));
+}
+
 async function runFactionResponse(response, factionId) {
   if (interactionBusy || !worldRuntime) return;
   const presence = state.world?.factionPresence?.find((item) => item.factionId === factionId && item.sceneId === state.sceneId);
@@ -1168,6 +1258,22 @@ function bindEvents() {
   document.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => handleAction(button.dataset.action));
   });
+  document.querySelectorAll("[data-simple-action]").forEach((button) => {
+    button.addEventListener("click", () => runSimpleCommand(button.dataset.simpleAction));
+  });
+  document.querySelectorAll("[data-action-category]").forEach((button) => {
+    button.addEventListener("click", () => {
+      actionCategory = button.dataset.actionCategory;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-simple-panel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activePanel = button.dataset.simplePanel;
+      saveGame(state);
+      render();
+    });
+  });
   document.querySelectorAll("[data-npc-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.npcAction;
@@ -1251,6 +1357,11 @@ function handleAction(action) {
   if (action === "dismiss-world-beat") {
     sceneBeat = null;
     document.querySelector("[data-world-beat]")?.setAttribute("hidden", "");
+  }
+  if (action === "dismiss-simple-result") {
+    state.lastSimpleResult = null;
+    saveGame(state);
+    render();
   }
   if (action === "play") setState({ ...state, phase: state.finished ? "menu" : "game" });
   if (action === "intro-next") setState({ ...state, introStep: Math.min(2, (Number(state.introStep) || 0) + 1) });
